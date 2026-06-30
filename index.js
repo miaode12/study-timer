@@ -215,7 +215,12 @@ function createTimerUI() {
 
         panelBar.on('mousedown touchstart', function (e) {
             const tag = (e.target.tagName || '').toLowerCase();
-            if (tag === 'button' || tag === 'select' || tag === 'option' || tag === 'input') return;
+            // Don't steal events from interactive children
+            if (tag === 'button' || tag === 'select' || tag === 'option' || tag === 'input') {
+                // Allow the event to reach the child normally
+                return;
+            }
+            e.preventDefault(); // Prevent text selection / scrolling on drag
             startPanelDrag(e);
         });
 
@@ -278,10 +283,12 @@ function createTimerUI() {
         // double-fire: touchend hides panel, then the delayed click lands on
         // the toggle button and re-opens it, appearing as "no response").
         let closeGuard = false;
+        // Close button: use pointerdown for reliable mobile+desktop
         $('#study-panel-close').on('click', function (e) {
             log('★ 关闭按钮 click, 事件类型=', e.type, 'target=', e.target.tagName, 'closeGuard=', closeGuard);
             e.preventDefault();
             e.stopPropagation();
+            e.stopImmediatePropagation();
             closeGuard = true;
             setTimeout(() => { log('closeGuard 超时解除'); closeGuard = false; }, 350);
             const panel = $('#study-timer-panel');
@@ -329,9 +336,13 @@ function createTimerUI() {
             }
         });
 
-        // Stats button
-        // Stats button
-        $('#study-panel-stats').on('click', toggleStatsPopup);
+        // Stats button — also ensure it works on mobile
+        $('#study-panel-stats').on('click', function(e) {
+            log('📊 统计按钮 click');
+            e.preventDefault();
+            e.stopPropagation();
+            toggleStatsPopup();
+        });
         $('#study-panel-now').on('click', () => {
             const d = new Date();
             const time = `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
@@ -424,11 +435,29 @@ ${chatCtx}
 
 function toggleStatsPopup() {
     const popup = $('#study-stats-popup');
+    log('toggleStatsPopup: popup存在=', popup.length > 0, '当前visible=', popup.hasClass('study-popup-visible'));
     if (popup.hasClass('study-popup-visible')) {
         popup.removeClass('study-popup-visible').addClass('study-popup-hidden');
     } else {
-        $('#study-stats-content').html(formatStatsMessage().replace(/\n/g, '<br>'));
+        const content = $('#study-stats-content');
+        if (content.length === 0) {
+            logWarn('toggleStatsPopup: #study-stats-content 不存在!');
+            return;
+        }
+        content.html(formatStatsMessage().replace(/\n/g, '<br>'));
         popup.removeClass('study-popup-hidden').addClass('study-popup-visible');
+        // Tap outside to close (mobile-friendly)
+        setTimeout(() => {
+            $(document).one('click touchstart', function docClick(e) {
+                const $t = $(e.target);
+                if (!$t.closest('#study-stats-popup').length && !$t.closest('#study-panel-stats').length) {
+                    popup.removeClass('study-popup-visible').addClass('study-popup-hidden');
+                } else {
+                    // Re-bind if click was inside
+                    $(document).one('click touchstart', docClick);
+                }
+            });
+        }, 100);
         // Auto-hide after 15s
         clearTimeout(/** @type {any} */(window)._statsTimeout);
         /** @type {any} */(window)._statsTimeout = setTimeout(() => {

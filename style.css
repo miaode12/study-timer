@@ -20,7 +20,7 @@
     transition: transform 0.3s ease;
     border-radius: 12px 12px 0 0;
 }
-#study-timer-panel.study-panel-hidden { transform: translateY(100%); }
+#study-timer-panel.study-panel-hidden { transform: translateY(100%); pointer-events: none; }
 #study-timer-panel.study-panel-visible { transform: translateY(0); }
 #study-timer-panel.study-panel-dragging {
     border-radius: 12px;
@@ -31,6 +31,7 @@
 #study-timer-panel-bar {
     display: flex; align-items: center; height: 100%; padding: 0 12px; gap: 6px;
     max-width: 900px; margin: 0 auto; cursor: grab;
+    touch-action: manipulation;
 }
 #study-timer-panel-bar:active { cursor: grabbing; }
 #study-panel-drag-handle {
@@ -52,12 +53,14 @@
     height: 26px; min-width: 34px; border: 1px solid #3a2a50; border-radius: 8px;
     background: rgba(123,45,142,0.15); color: #c8b0e0; font-size: 11px;
     cursor: pointer; transition: all 0.2s; padding: 0 5px;
+    touch-action: manipulation; -webkit-tap-highlight-color: transparent;
 }
 .study-quick-btn:hover { background: rgba(123,45,142,0.4); border-color: #7b2d8e; color: #fff; transform: translateY(-1px); }
 #study-panel-stats, #study-panel-now, #study-panel-close {
     height: 26px; width: 32px; border: 1px solid #3a2a50; border-radius: 8px;
     background: rgba(255,255,255,0.06); color: #c8b0e0; font-size: 14px;
     cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center;
+    touch-action: manipulation; -webkit-tap-highlight-color: transparent;
 }
 #study-panel-stats:hover, #study-panel-now:hover, #study-panel-close:hover { background: rgba(123,45,142,0.3); border-color: #7b2d8e; color: #fff; }
 #study-panel-ai-toggle { height: 26px; width: 32px; border: 1px solid #3a2a50; border-radius: 8px; background: rgba(255,255,255,0.06); color: #c8b0e0; font-size: 14px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; }
@@ -65,7 +68,7 @@
 #study-panel-ai-toggle.active-ai { background: rgba(76,175,80,0.25); border-color: #4caf50; color: #81c784; box-shadow: 0 0 8px rgba(76,175,80,0.3); }
 #study-panel-ai-timer { height: 26px; width: 32px; border: 1px solid #3a2a50; border-radius: 8px; background: rgba(255,255,255,0.06); color: #c8b0e0; font-size: 14px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; }
 #study-panel-ai-timer:hover { background: rgba(255,152,0,0.3); border-color: #ff9800; color: #ffb74d; }
-#study-panel-close { font-size: 12px; color: #8a6a9a; margin-left: 4px; }
+#study-panel-close { font-size: 12px; color: #8a6a9a; margin-left: 4px; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
 #study-panel-close:hover { color: #ff6b6b; border-color: #d4532a; }
 
 /* ========== Stats Popup ========== */
@@ -207,23 +210,42 @@
         font-size: 11px;
     }
 
-    /* Stats popup: constrained width */
+    /* Stats popup: show ABOVE panel, use top-based positioning */
     #study-stats-popup {
         left: 8px;
         right: 8px;
+        top: 60px;
+        bottom: auto;
         transform: none;
+        max-height: calc(100vh - 130px);
     }
     #study-stats-popup.study-popup-hidden {
-        transform: translateY(10px);
+        opacity: 0;
+        pointer-events: none;
+        transform: translateY(-10px);
     }
     #study-stats-popup.study-popup-visible {
+        opacity: 1;
         transform: translateY(0);
     }
     #study-stats-content {
         min-width: auto;
+        max-width: 100%;
         padding: 14px 16px;
         font-size: 11px;
+        white-space: pre-wrap;
+        word-break: break-all;
     }
+}
+@media (max-width: 380px) {
+    /* Ultra-small screens: hide affection, simplify bar */
+    #study-timer-affection { display: none; }
+    #study-panel-stats-summary { font-size: 10px; min-width: auto; }
+    .study-quick-btn { min-width: 25px; font-size: 9px; padding: 0 3px; height: 22px; }
+    #study-timer-panel-bar { gap: 2px; padding: 4px 6px; }
+    #study-panel-subject { width: 44px; height: 22px; font-size: 10px; }
+    #study-panel-close { height: 30px; width: 30px; font-size: 14px; }
+    #study-panel-drag-handle { font-size: 16px; padding: 2px 4px; }
 }
 @keyframes timer-pulse {
     0%,100% { box-shadow: 0 8px 32px rgba(212,83,42,0.4); }
