@@ -1078,15 +1078,8 @@ function createUI() {
 
     console.log('[StudyTimer] ✅ UI 创建完成');
 
-    // ===== 肉眼诊断标记：页面左上角彩色标签 =====
-    const badge = document.createElement('div');
-    badge.id = 'st-diag-badge';
-    badge.style.cssText = 'position:fixed;top:8px;left:8px;z-index:2147483647;'
-        + 'padding:4px 10px;border-radius:10px;font-size:12px;font-weight:700;'
-        + 'color:#fff;background:#ff4757;font-family:sans-serif;pointer-events:none;'
-        + 'box-shadow:0 2px 8px rgba(0,0,0,0.3);';
-    badge.textContent = '⏳ 检测中...';
-    document.documentElement.appendChild(badge);
+    // ===== 手机调试面板：劫持 console 输出到可见面板 =====
+    setupMobileDebug();
 
     // 延迟诊断：检查按钮是否真的可见
     setTimeout(() => {
@@ -1096,10 +1089,10 @@ function createUI() {
         const htmlT = htmlStyle.transform;
         const bodyT = bodyStyle.transform;
         const hasTransform = htmlT !== 'none' || bodyT !== 'none';
+        const badge = document.getElementById('st-diag-badge');
 
         if (!btn) {
-            badge.textContent = '❌ 按钮丢失';
-            badge.style.background = '#ff4757';
+            if (badge) { badge.textContent = '❌ 按钮丢失'; badge.style.background = '#ff4757'; }
             console.error('[StudyTimer] ❌ 浮动按钮元素丢失！');
             return;
         }
@@ -1108,23 +1101,103 @@ function createUI() {
         const vis = r.width > 0 && r.height > 0;
 
         if (!vis && hasTransform) {
-            badge.textContent = '⚠ fixed失效(t)';
-            badge.style.background = '#ffa502';
+            if (badge) { badge.textContent = '⚠ fixed失效'; badge.style.background = '#ffa502'; }
             console.warn('[StudyTimer] ⚠ fixed失效: 父级transform', {htmlT, bodyT});
         } else if (!vis) {
-            badge.textContent = '⚠ 按钮隐藏';
-            badge.style.background = '#ffa502';
+            if (badge) { badge.textContent = '⚠ 按钮隐藏'; badge.style.background = '#ffa502'; }
             console.warn('[StudyTimer] ⚠ 按钮不可见 rect:', JSON.stringify(r));
         } else {
-            badge.textContent = '✅ 按钮可见';
-            badge.style.background = '#2ed573';
+            if (badge) { badge.textContent = '✅ 可见'; badge.style.background = '#2ed573'; }
             console.log('[StudyTimer] ✅ 按钮可见 rect:', JSON.stringify(r));
         }
 
         console.log('[StudyTimer] 🔍 htmlT=' + htmlT + ' bodyT=' + bodyT);
+
+        // 8秒后自动收起标签
+        setTimeout(() => {
+            if (badge) { badge.style.opacity = '0.5'; badge.style.fontSize = '10px'; }
+        }, 8000);
     }, 800);
 
     return { floatingBtn, panel, statsPanel, settingsPanel, overlay };
+}
+
+/**
+ * 手机调试面板：劫持 console 输出到一个可展开的浮动面板
+ * 不需要 F12，直接在手机页面上看日志
+ */
+function setupMobileDebug() {
+    // 诊断标签（可点击）
+    const badge = document.createElement('div');
+    badge.id = 'st-diag-badge';
+    badge.style.cssText = 'position:fixed;top:8px;left:8px;z-index:2147483647;'
+        + 'padding:4px 10px;border-radius:10px;font-size:12px;font-weight:700;'
+        + 'color:#fff;background:#ff4757;font-family:sans-serif;'
+        + 'box-shadow:0 2px 8px rgba(0,0,0,0.3);'
+        + 'cursor:pointer;transition:opacity 0.3s;';
+    badge.textContent = '⏳ 检测中...';
+    badge.title = '点击展开调试日志';
+    document.documentElement.appendChild(badge);
+
+    // 日志面板（默认隐藏，点击标签展开）
+    const logPanel = document.createElement('div');
+    logPanel.id = 'st-log-panel';
+    logPanel.style.cssText = 'position:fixed;top:36px;left:8px;right:8px;z-index:2147483646;'
+        + 'max-height:55vh;overflow-y:auto;background:#1e1e2e;color:#cdd6f4;'
+        + 'border-radius:12px;padding:10px;font-size:11px;font-family:monospace;'
+        + 'box-shadow:0 4px 20px rgba(0,0,0,0.6);display:none;'
+        + 'line-height:1.5;word-break:break-all;';
+    logPanel.innerHTML = '<div style="color:#89b4fa;text-align:center;margin-bottom:6px;">📋 调试日志 (点击标签关闭)</div>';
+    document.documentElement.appendChild(logPanel);
+
+    // 点击标签切换日志面板
+    badge.addEventListener('click', () => {
+        const show = logPanel.style.display === 'none';
+        logPanel.style.display = show ? 'block' : 'none';
+        badge.textContent = show ? '📋 日志中' : (badge.getAttribute('data-status') || '⏳');
+        logPanel.scrollTop = logPanel.scrollHeight;
+    });
+
+    // 日志缓冲区
+    const logLines = [];
+    const MAX_LINES = 80;
+    
+    function addLogLine(level, args) {
+        const time = new Date().toLocaleTimeString('zh-CN', {hour12: false});
+        const text = args.map(a => {
+            try { return typeof a === 'object' ? JSON.stringify(a) : String(a); }
+            catch { return String(a); }
+        }).join(' ');
+        const color = level === 'error' ? '#ff4757' : level === 'warn' ? '#ffa502' : '#a6e3a1';
+        const icon = level === 'error' ? '❌' : level === 'warn' ? '⚠' : '📎';
+        const line = `<div style="color:#6c7086">${time}</div><div style="color:${color};margin-bottom:4px;">${icon} ${escapeHTML(text)}</div>`;
+        logLines.push(line);
+        if (logLines.length > MAX_LINES) logLines.shift();
+        logPanel.innerHTML = '<div style="color:#89b4fa;text-align:center;margin-bottom:6px;">📋 调试日志</div>' + logLines.join('');
+        logPanel.scrollTop = logPanel.scrollHeight;
+    }
+
+    // 劫持 console
+    const origLog = console.log.bind(console);
+    const origWarn = console.warn.bind(console);
+    const origError = console.error.bind(console);
+
+    console.log = function(...args) {
+        origLog(...args);
+        try { addLogLine('log', args); } catch {}
+    };
+    console.warn = function(...args) {
+        origWarn(...args);
+        try { addLogLine('warn', args); } catch {}
+    };
+    console.error = function(...args) {
+        origError(...args);
+        try { addLogLine('error', args); } catch {}
+    };
+
+    // 保存状态引用
+    window.__stBadge = badge;
+    window.__stLogPanel = logPanel;
 }
 
 function buildPanelHTML() {
