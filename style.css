@@ -21,7 +21,7 @@
     border-radius: 12px 12px 0 0;
 }
 #study-timer-panel.study-panel-hidden { transform: translateY(100%); pointer-events: none; }
-#study-timer-panel.study-panel-visible { transform: translateY(0); }
+#study-timer-panel.study-panel-visible { transform: translateY(0); pointer-events: auto; }
 #study-timer-panel.study-panel-dragging {
     border-radius: 12px;
     box-shadow: 0 8px 32px rgba(123,45,142,0.5);

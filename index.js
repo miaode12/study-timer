@@ -262,6 +262,15 @@ function createTimerUI() {
             log('toggle mousedown/touchstart, 事件类型=', e.type);
             startDrag(e);
         });
+/** Reset panel to default bottom position */
+function resetPanelPosition() {
+    const panel = $('#study-timer-panel');
+    panel.css({ left: '', top: '', bottom: '', right: '', width: '', transform: '', transition: '' })
+        .removeClass('study-panel-dragging');
+}
+
+// ... (inside createTimerUI, after panel variable declaration)
+
         toggle.on('click', function () {
             log('toggle click, dragged=', dragData.dragged, 'closeGuard=', closeGuard);
             if (dragData.dragged) { dragData.dragged = false; return; }
@@ -269,11 +278,13 @@ function createTimerUI() {
             const panel = $('#study-timer-panel');
             if (panel.hasClass('study-panel-hidden')) {
                 log('toggle click → 打开面板');
+                resetPanelPosition(); // Always reset to bottom when opening via toggle
                 panel.removeClass('study-panel-hidden').addClass('study-panel-visible');
                 toggle.addClass('study-toggle-active');
             } else {
                 log('toggle click → 收起面板');
-                panel.removeClass('study-panel-visible').addClass('study-panel-hidden');
+                resetPanelPosition(); // Reset position before hiding
+                panel.addClass('study-panel-hidden').removeClass('study-panel-visible');
                 toggle.removeClass('study-toggle-active');
             }
         });
@@ -293,10 +304,8 @@ function createTimerUI() {
             setTimeout(() => { log('closeGuard 超时解除'); closeGuard = false; }, 350);
             const panel = $('#study-timer-panel');
             log('关闭前 panel class=', panel.attr('class'), 'toggle class=', $('#study-timer-toggle').attr('class'));
-            // Reset panel to default bottom position
-            panel.css({ left: '', top: '', bottom: '', right: '', width: '', transform: '', transition: '' })
-                .removeClass('study-panel-visible study-panel-dragging')
-                .addClass('study-panel-hidden');
+            resetPanelPosition();
+            panel.addClass('study-panel-hidden').removeClass('study-panel-visible');
             $('#study-timer-toggle').removeClass('study-toggle-active');
             log('关闭后 panel class=', panel.attr('class'), 'toggle class=', $('#study-timer-toggle').attr('class'));
         });
