@@ -18,13 +18,27 @@
     background: linear-gradient(90deg, #1a1a2e 0%, #1e1e3a 50%, #1a1a2e 100%);
     border-top: 1px solid #3a2a50; box-shadow: 0 -4px 16px rgba(0,0,0,0.4);
     transition: transform 0.3s ease;
+    border-radius: 12px 12px 0 0;
 }
 #study-timer-panel.study-panel-hidden { transform: translateY(100%); }
 #study-timer-panel.study-panel-visible { transform: translateY(0); }
+#study-timer-panel.study-panel-dragging {
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(123,45,142,0.5);
+    border: 1px solid #7b2d8e;
+    border-top: 1px solid #7b2d8e;
+}
 #study-timer-panel-bar {
     display: flex; align-items: center; height: 100%; padding: 0 12px; gap: 6px;
-    max-width: 900px; margin: 0 auto;
+    max-width: 900px; margin: 0 auto; cursor: grab;
 }
+#study-timer-panel-bar:active { cursor: grabbing; }
+#study-panel-drag-handle {
+    font-size: 14px; color: #5a4a6a; cursor: grab; user-select: none;
+    letter-spacing: 0px; margin-right: 4px; flex-shrink: 0;
+    padding: 0 2px; line-height: 1;
+}
+#study-panel-drag-handle:hover { color: #b44fd4; }
 #study-panel-stats-summary { font-size: 12px; color: #c8b0e0; min-width: 110px; font-variant-numeric: tabular-nums; }
 #study-panel-subject {
     width: 70px; height: 26px; border: 1px solid #3a2a50; border-radius: 8px;
@@ -118,10 +132,17 @@
     #study-panel-stats-summary {
         font-size: 11px;
         min-width: auto;
-        order: -1;
-        width: 100%;
-        text-align: center;
+        order: 0;
+        width: auto;
+        text-align: left;
         line-height: 1.4;
+    }
+
+    /* Drag handle: bigger on mobile for easy grabbing */
+    #study-panel-drag-handle {
+        font-size: 18px;
+        padding: 4px 6px;
+        margin-right: 2px;
     }
 
     /* Subject dropdown: smaller */

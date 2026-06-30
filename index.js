@@ -136,6 +136,7 @@ function createTimerUI() {
         const panelHtml = `
     <div id="study-timer-panel" class="study-panel-hidden">
         <div id="study-timer-panel-bar">
+            <span id="study-panel-drag-handle" title="拖拽移动面板">⋮⋮</span>
             <span id="study-panel-stats-summary">📊 0分钟</span>
             <span id="study-timer-affection" title="好感度" style="font-size:12px;color:#ff6b9d;cursor:pointer;min-width:50px;text-align:center;"></span>
             <select id="study-panel-subject">
@@ -156,6 +157,67 @@ function createTimerUI() {
         </div>
     </div>`;
         $('body').append(toggleHtml + panelHtml);
+
+        // ===== Panel bar — draggable =====
+        const panel = $('#study-timer-panel');
+        const panelBar = $('#study-timer-panel-bar');
+        let panelDragData = { startX: 0, startY: 0, dragged: false, offsetX: 0, offsetY: 0 };
+
+        function startPanelDrag(e) {
+            // Don't drag if clicking on interactive elements
+            const tag = (e.target.tagName || '').toLowerCase();
+            if (tag === 'button' || tag === 'select' || tag === 'option' || tag === 'input') return;
+            const ev = e.touches ? e.touches[0] : e;
+            panelDragData.startX = ev.clientX;
+            panelDragData.startY = ev.clientY;
+            panelDragData.dragged = false;
+            const rect = panel[0].getBoundingClientRect();
+            panelDragData.offsetX = ev.clientX - rect.left;
+            panelDragData.offsetY = ev.clientY - rect.top;
+            // Detach from bottom: switch to absolute positioning
+            panel.css({
+                left: rect.left + 'px',
+                top: rect.top + 'px',
+                bottom: 'auto',
+                right: 'auto',
+                width: rect.width + 'px',
+                transform: 'none',
+                transition: 'none'
+            }).addClass('study-panel-dragging');
+
+            function onMove(me) {
+                const mv = me.touches ? me.touches[0] : me;
+                const dx = mv.clientX - panelDragData.startX;
+                const dy = mv.clientY - panelDragData.startY;
+                if (Math.abs(dx) > 3 || Math.abs(dy) > 3) panelDragData.dragged = true;
+                panel.css({
+                    left: (mv.clientX - panelDragData.offsetX) + 'px',
+                    top: (mv.clientY - panelDragData.offsetY) + 'px'
+                });
+            }
+            function onUp() {
+                $(document).off('mousemove touchmove', onMove).off('mouseup touchend', onUp);
+                // Snap to nearest edge
+                const pRect = panel[0].getBoundingClientRect();
+                const vw = window.innerWidth, vh = window.innerHeight;
+                const margin = 4;
+                const snapX = pRect.left + pRect.width / 2 < vw / 2 ? margin : vw - pRect.width - margin;
+                const snapY = Math.max(margin, Math.min(pRect.top, vh - pRect.height - margin));
+                panel.css({
+                    left: snapX + 'px',
+                    top: snapY + 'px',
+                    width: pRect.width + 'px',
+                    transition: ''
+                }).removeClass('study-panel-dragging');
+            }
+            $(document).on('mousemove touchmove', onMove).on('mouseup touchend', onUp);
+        }
+
+        panelBar.on('mousedown touchstart', function (e) {
+            const tag = (e.target.tagName || '').toLowerCase();
+            if (tag === 'button' || tag === 'select' || tag === 'option' || tag === 'input') return;
+            startPanelDrag(e);
+        });
 
         // Toggle button — draggable + click (mouse + touch)
         const toggle = $('#study-timer-toggle');
@@ -224,7 +286,10 @@ function createTimerUI() {
             setTimeout(() => { log('closeGuard 超时解除'); closeGuard = false; }, 350);
             const panel = $('#study-timer-panel');
             log('关闭前 panel class=', panel.attr('class'), 'toggle class=', $('#study-timer-toggle').attr('class'));
-            panel.removeClass('study-panel-visible').addClass('study-panel-hidden');
+            // Reset panel to default bottom position
+            panel.css({ left: '', top: '', bottom: '', right: '', width: '', transform: '', transition: '' })
+                .removeClass('study-panel-visible study-panel-dragging')
+                .addClass('study-panel-hidden');
             $('#study-timer-toggle').removeClass('study-toggle-active');
             log('关闭后 panel class=', panel.attr('class'), 'toggle class=', $('#study-timer-toggle').attr('class'));
         });
