@@ -1835,7 +1835,10 @@ function init() {
             refreshSubjectChips();
             updateTimerDisplay();
             updatePanelUI();
-            console.log('[StudyTimer] 🎨 UI 刷新完成');
+            // 🔥 测试：面板初始直接展开，绕过悬浮球
+            document.getElementById('study-timer-panel')?.classList.add('visible');
+            document.getElementById('study-timer-overlay')?.classList.add('visible');
+            console.log('[StudyTimer] 🎨 UI 刷新完成，面板已展开');
         }, 200);
 
         // 注册命令
