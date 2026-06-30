@@ -175,6 +175,7 @@ function createTimerUI() {
         });
         toggle.on('click', function () {
             if (dragData.dragged) { dragData.dragged = false; return; }
+            if (closeGuard) return; // ignore clicks right after panel close
             const panel = $('#study-timer-panel');
             if (panel.hasClass('study-panel-hidden')) {
                 panel.removeClass('study-panel-hidden').addClass('study-panel-visible');
@@ -185,10 +186,16 @@ function createTimerUI() {
             }
         });
 
-        // Close button in panel (both click and touch)
-        $('#study-panel-close').on('click touchend', function (e) {
+        // Close button in panel — only listen for 'click' (modern browsers
+        // synthesize click from touch, so 'touchend' is redundant and causes
+        // double-fire: touchend hides panel, then the delayed click lands on
+        // the toggle button and re-opens it, appearing as "no response").
+        let closeGuard = false;
+        $('#study-panel-close').on('click', function (e) {
             e.preventDefault();
             e.stopPropagation();
+            closeGuard = true;
+            setTimeout(() => { closeGuard = false; }, 350);
             $('#study-timer-panel').removeClass('study-panel-visible').addClass('study-panel-hidden');
             $('#study-timer-toggle').removeClass('study-toggle-active');
         });
