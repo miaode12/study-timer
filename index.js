@@ -10,6 +10,25 @@ import { ToolManager } from '../../../tool-calling.js';
 const MODULE_NAME = 'study-timer';
 const STORAGE_KEY = 'study_timer_stats';
 
+// ====================  Logging  ====================
+/** @param {string} msg @param {...any} args */
+function log(msg, ...args) {
+    const ts = new Date().toISOString().split('T')[1].slice(0, 12);
+    console.log(`[StudyTimer ${ts}] ${msg}`, ...args);
+}
+/** @param {string} msg @param {...any} args */
+function logWarn(msg, ...args) {
+    const ts = new Date().toISOString().split('T')[1].slice(0, 12);
+    console.warn(`[StudyTimer ${ts}] ${msg}`, ...args);
+}
+/** @param {string} msg @param {...any} args */
+function logErr(msg, ...args) {
+    const ts = new Date().toISOString().split('T')[1].slice(0, 12);
+    console.error(`[StudyTimer ${ts}] ${msg}`, ...args);
+}
+
+log('模块加载，MODULE_NAME=', MODULE_NAME);
+
 /** @type {ReturnType<typeof setInterval>|null} */
 let timerInterval = null;
 /** @type {number|null} */
@@ -46,6 +65,7 @@ const defaultSettings = {
  * @param {string} text Message text
  */
 async function sendMessageAsCharacter(text) {
+    log(`sendMessageAsCharacter: text长度=${text.length}, char="${name2}"`);
     const chId = /** @type {any} */ (this_chid);
     const avatar = characters[chId]?.avatar;
     const message = {
@@ -105,6 +125,7 @@ function formatTime(ms) {
 }
 
 function createTimerUI() {
+    log('createTimerUI 调用, panel已存在=', $('#study-timer-panel').length > 0);
     // Only create panel if it doesn't exist (panel persists across sessions)
     if ($('#study-timer-panel').length === 0) {
         const toggleHtml = `
@@ -170,17 +191,21 @@ function createTimerUI() {
         }
 
         toggle.on('mousedown touchstart', function (e) {
-            if (dragData.dragged) { dragData.dragged = false; return; }
+            if (dragData.dragged) { log('toggle mousedown 忽略 (dragged残留)'); dragData.dragged = false; return; }
+            log('toggle mousedown/touchstart, 事件类型=', e.type);
             startDrag(e);
         });
         toggle.on('click', function () {
+            log('toggle click, dragged=', dragData.dragged, 'closeGuard=', closeGuard);
             if (dragData.dragged) { dragData.dragged = false; return; }
-            if (closeGuard) return; // ignore clicks right after panel close
+            if (closeGuard) { log('toggle click 被 closeGuard 阻止'); return; }
             const panel = $('#study-timer-panel');
             if (panel.hasClass('study-panel-hidden')) {
+                log('toggle click → 打开面板');
                 panel.removeClass('study-panel-hidden').addClass('study-panel-visible');
                 toggle.addClass('study-toggle-active');
             } else {
+                log('toggle click → 收起面板');
                 panel.removeClass('study-panel-visible').addClass('study-panel-hidden');
                 toggle.removeClass('study-toggle-active');
             }
@@ -192,12 +217,16 @@ function createTimerUI() {
         // the toggle button and re-opens it, appearing as "no response").
         let closeGuard = false;
         $('#study-panel-close').on('click', function (e) {
+            log('★ 关闭按钮 click, 事件类型=', e.type, 'target=', e.target.tagName, 'closeGuard=', closeGuard);
             e.preventDefault();
             e.stopPropagation();
             closeGuard = true;
-            setTimeout(() => { closeGuard = false; }, 350);
-            $('#study-timer-panel').removeClass('study-panel-visible').addClass('study-panel-hidden');
+            setTimeout(() => { log('closeGuard 超时解除'); closeGuard = false; }, 350);
+            const panel = $('#study-timer-panel');
+            log('关闭前 panel class=', panel.attr('class'), 'toggle class=', $('#study-timer-toggle').attr('class'));
+            panel.removeClass('study-panel-visible').addClass('study-panel-hidden');
             $('#study-timer-toggle').removeClass('study-toggle-active');
+            log('关闭后 panel class=', panel.attr('class'), 'toggle class=', $('#study-timer-toggle').attr('class'));
         });
 
         // Populate subject dropdown from subject_goals
@@ -493,6 +522,7 @@ ${chatContext}
  * @param {string} subject
  */
 function startForwardTimer(subject) {
+    log(`▶ startForwardTimer: subject="${subject}"`);
     stopTimer(true);
 
     timerForward = true;
@@ -531,6 +561,7 @@ function showTimerUI() {
 }
 
 function hideTimerUI() {
+    log('hideTimerUI');
     $('#study-timer-overlay').removeClass('study-timer-visible').addClass('study-timer-hidden');
     // Small delay before removing
     setTimeout(() => {
@@ -594,6 +625,7 @@ function updateTimerUI() {
  * @param {string} subject
  */
 function startTimer(minutes, subject) {
+    log(`▶ startTimer: subject="${subject}", minutes=${minutes}`);
     stopTimer(true);
 
     timerMinutes = minutes;
@@ -628,7 +660,8 @@ function startTimer(minutes, subject) {
 }
 
 function togglePause() {
-    if (!timerRunning) return;
+    if (!timerRunning) { log('togglePause: timer未运行，忽略'); return; }
+    log(`togglePause: 当前paused=${timerPaused}, forward=${timerForward}`);
 
     if (timerPaused) {
         // Resume
@@ -656,6 +689,7 @@ function togglePause() {
 }
 
 function completeTimer() {
+    log(`✅ completeTimer: subject="${timerSubject}", minutes=${timerMinutes}`);
     const completedMinutes = timerMinutes;
     const completedSubject = timerSubject;
 
@@ -701,6 +735,7 @@ function completeTimer() {
 }
 
 function stopTimer(silent = false) {
+    log(`⏹ stopTimer: silent=${silent}, wasForward=${timerForward}, subject="${timerSubject}", running=${timerRunning}`);
     const wasForward = timerForward;
     const stoppedSubject = timerSubject;
     let recordedMinutes = 0;
@@ -1083,6 +1118,7 @@ function registerSlashCommands() {
 
 // Listen for AI messages containing timer commands
 function initTimerCommands() {
+    log('initTimerCommands: 注册 CHARACTER_MESSAGE_RENDERED 监听');
     eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, async (/** @type {number} */ messageId) => {
         const mes = chat[messageId];
         if (!mes || mes.is_user || mes.is_system) return;
@@ -1090,6 +1126,7 @@ function initTimerCommands() {
 
         // [timer:stop]
         if (/\[timer:stop\]/i.test(text)) {
+            log('AI消息检测到 [timer:stop]');
             if (timerRunning) {
                 stopTimer(true);
                 mes.mes = text.replace(/\[timer:stop\]/gi, '').trim();
@@ -1103,6 +1140,7 @@ function initTimerCommands() {
         if (match) {
             const subject = match[1].trim();
             const minutes = parseInt(match[2], 10);
+            log(`AI消息检测到 [timer:${subject}:${minutes}]`);
             if (minutes >= 1 && minutes <= 480) {
                 // Start silently — AI already said something, no extra message
                 timerMinutes = minutes;
@@ -1309,12 +1347,24 @@ function registerStudyStatsTool() {
 // ==================== Init ====================
 
 export function initTimer() {
-    loadSettings();
-    registerSlashCommands();
-    createTimerUI(); // Show panel immediately
-    initTimerCommands();
-    registerStudyStatsTool();
-    const time = getCurrentTimeString();
-    const period = getTimeBasedMessage();
-    console.log(`[StudyTimer] ${period}好！现在是${time}。学习计时器已加载。使用 /study 科目=数学 分钟=30 开始。`);
+    log('★★★ initTimer 开始 ★★★');
+    try {
+        loadSettings();
+        log('loadSettings 完成');
+        registerSlashCommands();
+        log('registerSlashCommands 完成');
+        createTimerUI(); // Show panel immediately
+        log('createTimerUI 完成, panel存在=', $('#study-timer-panel').length > 0, 'toggle存在=', $('#study-timer-toggle').length > 0);
+        initTimerCommands();
+        log('initTimerCommands 完成');
+        registerStudyStatsTool();
+        log('registerStudyStatsTool 完成');
+        const time = getCurrentTimeString();
+        const period = getTimeBasedMessage();
+        console.log(`[StudyTimer] ${period}好！现在是${time}。学习计时器已加载。使用 /study 科目=数学 分钟=30 开始。`);
+        log('★★★ initTimer 完成 ★★★');
+    } catch (e) {
+        logErr('initTimer 异常!', e);
+        throw e;
+    }
 }
