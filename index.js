@@ -546,7 +546,7 @@ function createStyles() {
     position: absolute;
     top: 0; left: 0; right: 0; bottom: 0;
     z-index: 2147483644;
-    background: rgba(0,0,0,0.4);
+    background: rgba(60,50,40,0.25);
     display: none;
     pointer-events: none;
 }
@@ -563,9 +563,9 @@ function createStyles() {
     width: 52px;
     height: 52px;
     border-radius: 50%;
-    background: linear-gradient(135deg, #f38ba8, #fab387);
+    background: linear-gradient(135deg, #c4a0a0, #c4b0a0);
     border: none;
-    box-shadow: 0 4px 15px rgba(243, 139, 168, 0.45);
+    box-shadow: 0 4px 15px rgba(180, 155, 145, 0.4);
     cursor: grab;
     font-size: 24px;
     display: flex;
@@ -578,28 +578,28 @@ function createStyles() {
     touch-action: none;
 }
 #study-timer-floating-btn:active {
-    box-shadow: 0 2px 8px rgba(243, 139, 168, 0.35);
+    box-shadow: 0 2px 8px rgba(180, 155, 145, 0.3);
 }
 #study-timer-floating-btn.dragging {
     cursor: grabbing;
     transition: none;
-    box-shadow: 0 8px 25px rgba(243, 139, 168, 0.55);
+    box-shadow: 0 8px 25px rgba(180, 155, 145, 0.5);
 }
 #study-timer-floating-btn.running {
-    background: linear-gradient(135deg, #a6e3a1, #94e2d5);
-    box-shadow: 0 4px 15px rgba(166, 227, 161, 0.45);
+    background: linear-gradient(135deg, #a8b8a0, #a0b8b0);
+    box-shadow: 0 4px 15px rgba(155, 175, 155, 0.4);
     animation: pulse-green 2s infinite;
 }
 #study-timer-floating-btn.running.dragging {
     animation: none;
 }
 #study-timer-floating-btn.paused {
-    background: linear-gradient(135deg, #fab387, #f38ba8);
+    background: linear-gradient(135deg, #c4b0a0, #c4a0a0);
     animation: none;
 }
 @keyframes pulse-green {
-    0%, 100% { box-shadow: 0 4px 15px rgba(166, 227, 161, 0.45); }
-    50% { box-shadow: 0 4px 25px rgba(166, 227, 161, 0.75); }
+    0%, 100% { box-shadow: 0 4px 15px rgba(155, 175, 155, 0.4); }
+    50% { box-shadow: 0 4px 25px rgba(155, 175, 155, 0.7); }
 }
 
 #study-timer-floating-btn .mini-time {
@@ -628,15 +628,15 @@ function createStyles() {
     left: 0;
     right: 0;
     z-index: 2147483645;
-    background: #1e1e2e;
+    background: #f5f0eb;
     border-radius: 20px 20px 0 0;
-    box-shadow: 0 -4px 30px rgba(0,0,0,0.5);
+    box-shadow: 0 -4px 30px rgba(100,80,60,0.15);
     padding: 20px 16px 28px;
     transform: translateY(100%);
     transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
     max-height: 85vh;
     overflow-y: auto;
-    color: #cdd6f4;
+    color: #4a3f35;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
 }
 #study-timer-panel.visible {
@@ -648,7 +648,7 @@ function createStyles() {
     width: 40px;
     height: 5px;
     border-radius: 3px;
-    background: #45475a;
+    background: #d4ccc4;
     margin: 0 auto 16px;
     cursor: grab;
 }
@@ -664,11 +664,11 @@ function createStyles() {
     align-items: center;
     justify-content: center;
     font-size: 20px;
-    color: #a6adc8;
+    color: #a89888;
     cursor: pointer;
     border-radius: 50%;
     border: none;
-    background: rgba(69, 71, 90, 0.6);
+    background: rgba(180,170,160,0.5);
     transition: background 0.2s, color 0.2s;
     z-index: 10;
     line-height: 1;
@@ -678,8 +678,8 @@ function createStyles() {
 }
 .panel-close-btn:hover,
 .panel-close-btn:active {
-    background: #45475a;
-    color: #fff;
+    background: #c4b8ac;
+    color: #4a3f35;
 }
 
 /* 计时显示 */
@@ -692,15 +692,15 @@ function createStyles() {
     font-weight: 700;
     font-variant-numeric: tabular-nums;
     letter-spacing: 2px;
-    color: #cdd6f4;
+    color: #4a3f35;
     line-height: 1.1;
 }
-#study-timer-panel .timer-display .time.countdown-active { color: #f38ba8; }
-#study-timer-panel .timer-display .time.stopwatch-active { color: #a6e3a1; }
-#study-timer-panel .timer-display .time.break-active { color: #89b4fa; }
+#study-timer-panel .timer-display .time.countdown-active { color: #c4a0a0; }
+#study-timer-panel .timer-display .time.stopwatch-active { color: #a8b8a0; }
+#study-timer-panel .timer-display .time.break-active { color: #a0aec0; }
 #study-timer-panel .timer-display .label {
     font-size: 13px;
-    color: #a6adc8;
+    color: #a89888;
     margin-top: 4px;
 }
 
@@ -715,9 +715,9 @@ function createStyles() {
 #study-timer-panel .subject-chip {
     padding: 8px 16px;
     border-radius: 20px;
-    border: 1.5px solid #45475a;
-    background: #313244;
-    color: #cdd6f4;
+    border: 1.5px solid #d4ccc4;
+    background: #ede7e0;
+    color: #4a3f35;
     font-size: 14px;
     cursor: pointer;
     transition: all 0.2s;
@@ -728,9 +728,9 @@ function createStyles() {
     transform: scale(0.95);
 }
 #study-timer-panel .subject-chip.selected {
-    border-color: #cba6f7;
-    background: #362035;
-    color: #cba6f7;
+    border-color: #b8a8c0;
+    background: #ece4f0;
+    color: #8a7a96;
     font-weight: 600;
 }
 
@@ -745,9 +745,9 @@ function createStyles() {
 #study-timer-panel .quick-time-btn {
     padding: 10px 18px;
     border-radius: 16px;
-    border: 1.5px solid #45475a;
-    background: #313244;
-    color: #cdd6f4;
+    border: 1.5px solid #d4ccc4;
+    background: #ede7e0;
+    color: #4a3f35;
     font-size: 15px;
     font-weight: 600;
     cursor: pointer;
@@ -758,8 +758,8 @@ function createStyles() {
     transform: scale(0.93);
 }
 #study-timer-panel .quick-time-btn.pomodoro {
-    border-color: #cba6f7;
-    color: #cba6f7;
+    border-color: #b8a8c0;
+    color: #8a7a96;
 }
 
 /* 操作按钮 */
@@ -787,28 +787,28 @@ function createStyles() {
     transform: scale(0.94);
 }
 #study-timer-panel .btn-start {
-    background: #a6e3a1;
-    color: #1e1e2e;
+    background: #a8b8a0;
+    color: #fff;
 }
 #study-timer-panel .btn-pause {
-    background: #fab387;
-    color: #1e1e2e;
+    background: #c4b0a0;
+    color: #fff;
 }
 #study-timer-panel .btn-resume {
-    background: #a6e3a1;
-    color: #1e1e2e;
+    background: #a8b8a0;
+    color: #fff;
 }
 #study-timer-panel .btn-stop {
-    background: #f38ba8;
-    color: #1e1e2e;
+    background: #c4a0a0;
+    color: #fff;
 }
 #study-timer-panel .btn-forward {
-    background: #89b4fa;
-    color: #1e1e2e;
+    background: #a0aec0;
+    color: #fff;
 }
 #study-timer-panel .btn-break {
-    background: #89b4fa;
-    color: #1e1e2e;
+    background: #a0aec0;
+    color: #fff;
 }
 
 /* 底部工具栏 */
@@ -821,15 +821,15 @@ function createStyles() {
 #study-timer-panel .tool-btn {
     padding: 8px 16px;
     border-radius: 14px;
-    border: 1px solid #45475a;
-    background: #313244;
-    color: #a6adc8;
+    border: 1px solid #d4ccc4;
+    background: #ede7e0;
+    color: #8c8075;
     font-size: 13px;
     cursor: pointer;
     transition: all 0.2s;
 }
 #study-timer-panel .tool-btn:active {
-    background: #45475a;
+    background: #e6dfd6;
 }
 
 /* 统计面板 */
@@ -839,15 +839,15 @@ function createStyles() {
     left: 0;
     right: 0;
     z-index: 2147483645;
-    background: #1e1e2e;
+    background: #f5f0eb;
     border-radius: 20px 20px 0 0;
-    box-shadow: 0 -4px 30px rgba(0,0,0,0.5);
+    box-shadow: 0 -4px 30px rgba(100,80,60,0.12);
     padding: 20px 16px 28px;
     transform: translateY(100%);
     transition: transform 0.35s ease;
     max-height: 80vh;
     overflow-y: auto;
-    color: #cdd6f4;
+    color: #4a3f35;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
 }
 #study-timer-stats-panel.visible {
@@ -858,41 +858,41 @@ function createStyles() {
     font-weight: 700;
     text-align: center;
     margin-bottom: 16px;
-    color: #f9e2af;
+    color: #c0b090;
 }
 #study-timer-stats-panel .stat-row {
     display: flex;
     justify-content: space-between;
     align-items: center;
     padding: 8px 0;
-    border-bottom: 1px solid #313244;
+    border-bottom: 1px solid #e6dfd6;
     font-size: 14px;
 }
 #study-timer-stats-panel .stat-subject { font-weight: 600; }
-#study-timer-stats-panel .stat-time { color: #a6e3a1; }
+#study-timer-stats-panel .stat-time { color: #a8b8a0; }
 #study-timer-stats-panel .progress-bar {
     width: 100%;
     height: 6px;
-    background: #313244;
+    background: #e6dfd6;
     border-radius: 3px;
     margin: 4px 0;
     overflow: hidden;
 }
 #study-timer-stats-panel .progress-fill {
     height: 100%;
-    background: linear-gradient(90deg, #a6e3a1, #94e2d5);
+    background: linear-gradient(90deg, #a8b8a0, #a0b8b0);
     border-radius: 3px;
     transition: width 0.3s ease;
 }
 #study-timer-stats-panel .goal-indicator {
     font-size: 11px;
-    color: #a6adc8;
+    color: #a89888;
     text-align: right;
 }
 #study-timer-stats-panel .total-row {
     margin-top: 12px;
     padding-top: 12px;
-    border-top: 2px solid #45475a;
+    border-top: 2px solid #d4ccc4;
     font-size: 16px;
     font-weight: 700;
 }
@@ -902,8 +902,8 @@ function createStyles() {
     padding: 10px 40px;
     border-radius: 20px;
     border: none;
-    background: #45475a;
-    color: #cdd6f4;
+    background: #d4ccc4;
+    color: #4a3f35;
     font-size: 14px;
     cursor: pointer;
 }
@@ -915,15 +915,15 @@ function createStyles() {
     left: 0;
     right: 0;
     z-index: 2147483645;
-    background: #1e1e2e;
+    background: #f5f0eb;
     border-radius: 20px 20px 0 0;
-    box-shadow: 0 -4px 30px rgba(0,0,0,0.5);
+    box-shadow: 0 -4px 30px rgba(100,80,60,0.12);
     padding: 20px 16px 28px;
     transform: translateY(100%);
     transition: transform 0.35s ease;
     max-height: 80vh;
     overflow-y: auto;
-    color: #cdd6f4;
+    color: #4a3f35;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
 }
 #study-timer-settings-panel.visible {
@@ -940,16 +940,16 @@ function createStyles() {
     justify-content: space-between;
     align-items: center;
     padding: 10px 0;
-    border-bottom: 1px solid #313244;
+    border-bottom: 1px solid #e6dfd6;
     font-size: 14px;
 }
 #study-timer-settings-panel .setting-item input[type="number"] {
     width: 65px;
     padding: 6px 8px;
     border-radius: 8px;
-    border: 1px solid #45475a;
-    background: #313244;
-    color: #cdd6f4;
+    border: 1px solid #d4ccc4;
+    background: #ede7e0;
+    color: #4a3f35;
     font-size: 14px;
     text-align: center;
 }
@@ -957,30 +957,30 @@ function createStyles() {
     width: 120px;
     padding: 6px 8px;
     border-radius: 8px;
-    border: 1px solid #45475a;
-    background: #313244;
-    color: #cdd6f4;
+    border: 1px solid #d4ccc4;
+    background: #ede7e0;
+    color: #4a3f35;
     font-size: 13px;
 }
 #study-timer-settings-panel .setting-item select {
     padding: 6px 10px;
     border-radius: 8px;
-    border: 1px solid #45475a;
-    background: #313244;
-    color: #cdd6f4;
+    border: 1px solid #d4ccc4;
+    background: #ede7e0;
+    color: #4a3f35;
     font-size: 13px;
 }
 #study-timer-settings-panel .toggle-switch {
     width: 48px;
     height: 26px;
     border-radius: 13px;
-    background: #45475a;
+    background: #d4ccc4;
     position: relative;
     cursor: pointer;
     transition: background 0.3s;
 }
 #study-timer-settings-panel .toggle-switch.on {
-    background: #a6e3a1;
+    background: #a8b8a0;
 }
 #study-timer-settings-panel .toggle-switch::after {
     content: '';
@@ -1006,8 +1006,8 @@ function createStyles() {
     padding: 10px 30px;
     border-radius: 20px;
     border: none;
-    background: #a6e3a1;
-    color: #1e1e2e;
+    background: #a8b8a0;
+    color: #fff;
     font-size: 14px;
     font-weight: 600;
     cursor: pointer;
@@ -1016,8 +1016,8 @@ function createStyles() {
     padding: 10px 30px;
     border-radius: 20px;
     border: none;
-    background: #45475a;
-    color: #cdd6f4;
+    background: #d4ccc4;
+    color: #4a3f35;
     font-size: 14px;
     cursor: pointer;
 }
@@ -1029,13 +1029,13 @@ function createStyles() {
     left: 50%;
     transform: translateX(-50%);
     z-index: 2147483647;
-    background: #313244;
-    color: #cdd6f4;
+    background: #ede7e0;
+    color: #4a3f35;
     padding: 12px 24px;
     border-radius: 25px;
     font-size: 14px;
     font-weight: 600;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+    box-shadow: 0 4px 20px rgba(100,80,60,0.15);
     opacity: 0;
     transition: opacity 0.3s;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
@@ -1888,7 +1888,7 @@ function showStatsPanel() {
             <span>总计</span>
             <span>${formatTime(totalSeconds)} (${formatHours(totalSeconds)}小时)</span>
         </div>
-        <div class="stat-row" style="font-size:12px;color:#a6adc8;">
+        <div class="stat-row" style="font-size:12px;color:#a89888;">
             <span>番茄数</span>
             <span>${StudyTimer.pomodoroCount} 🍅</span>
         </div>
@@ -1901,7 +1901,7 @@ function showStatsPanel() {
         weekTotal += Object.values(weekStats[key] || {}).reduce((s, v) => s + v, 0);
     }
     html += `
-        <div class="stat-row total-row" style="border-top:2px solid #89b4fa;">
+        <div class="stat-row total-row" style="border-top:2px solid #a0aec0;">
             <span>📅 本周总计</span>
             <span>${formatTime(weekTotal)} (${formatHours(weekTotal)}小时)</span>
         </div>
