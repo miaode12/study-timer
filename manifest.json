@@ -1,0 +1,14 @@
+{
+    "display_name": "学习计时器",
+    "loading_order": 100,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "Your Name",
+    "version": "1.0.0",
+    "homePage": "https://github.com/yourusername/study-timer",
+    "hooks": {
+        "activate": "initTimer"
+    }
+}
