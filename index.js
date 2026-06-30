@@ -10,11 +10,11 @@ const STUDY_TIMER_DEFAULTS = {
     longBreakMinutes: 15,         // 长休息 15 分钟
     longBreakInterval: 4,         // 每4个番茄后长休息
     alertVolume: 0.7,
-    aiInteractionEnabled: true,   // AI 角色互动
-    aiMessageMode: 'auto',        // 'auto' | 'template' | 'off'
+    aiInteractionEnabled: true,   // AI 角色互动（学习事件触发角色回应）
     autoStartBreak: false,
     subjects: ['数学', '英语','408', '其他'],
-    dailyGoals: {}               // { subject: minutes }
+    dailyGoals: {},               // { subject: minutes }
+    worldInfoBook: '学习记录'     // 世界书名称
 };
 
 // ============ 全局状态 ============
@@ -231,87 +231,176 @@ function getContext() {
         : null;
 }
 
+/** 获取当前AI角色名称 */
+function getCharacterName() {
+    try {
+        const ctx = getContext();
+        if (ctx && ctx.characters && ctx.characters[ctx.characterId]) {
+            return ctx.characters[ctx.characterId].name || '';
+        }
+    } catch {}
+    return '';
+}
+
 function sendSystemMessage(text) {
     const ctx = getContext();
     if (ctx && typeof ctx.sendSystemMessage === 'function') {
         ctx.sendSystemMessage('generic', text);
     } else {
-        // Fallback: 尝试通过 toast 或 console 显示
         try {
             if (typeof toastr !== 'undefined') toastr.info(text, '🍅 番茄钟');
         } catch { console.log('[StudyTimer]', text); }
     }
 }
 
+/**
+ * 构建学习统计摘要，供 AI 角色参考
+ */
+function buildStudySummary() {
+    const todayKey = getTodayKey();
+    const todayData = StudyTimer.dailyRecords[todayKey] || {};
+    const totalSec = getTodayTotalSeconds();
+    const totalHours = formatHours(totalSec);
+
+    let subjectLines = '';
+    for (const [subj, secs] of Object.entries(todayData)) {
+        subjectLines += `- ${subj}: ${formatTime(secs)}\n`;
+    }
+    if (!subjectLines) subjectLines = '（尚未记录）\n';
+
+    const { weekKeys, stats: weekStats } = getWeeklyStats();
+    let weekTotal = 0;
+    for (const key of weekKeys) {
+        weekTotal += Object.values(weekStats[key] || {}).reduce((s, v) => s + v, 0);
+    }
+
+    return {
+        todayKey,
+        subjectLines,
+        totalSec,
+        totalHours,
+        weekTotal,
+        weekHours: formatHours(weekTotal),
+        pomodoroCount: StudyTimer.pomodoroCount,
+        currentSubject: StudyTimer.currentSubject,
+        isRunning: StudyTimer.running,
+        isPaused: StudyTimer.paused,
+        timerType: StudyTimer.timerType
+    };
+}
+
+/**
+ * 触发 AI 角色对学习事件做出自然回应
+ * 调用 ctx.generate('normal') 让角色真正输出消息到聊天框。
+ */
 async function sendAIInteraction(scene) {
-    if (!StudyTimer.settings.aiInteractionEnabled) return;
-    if (StudyTimer.settings.aiMessageMode === 'off') return;
+    console.log('[StudyTimer] 🎭 sendAIInteraction 开始', {
+        scene,
+        aiEnabled: StudyTimer.settings.aiInteractionEnabled,
+        subject: StudyTimer.currentSubject
+    });
+
+    if (!StudyTimer.settings.aiInteractionEnabled) {
+        console.log('[StudyTimer] ⏭ AI互动已禁用，跳过');
+        return;
+    }
     
     const subject = StudyTimer.currentSubject;
-    const duration = StudyTimer.timerType === 'stopwatch' 
-        ? formatTime(StudyTimer.elapsedSeconds)
-        : formatTime(StudyTimer.totalDuration);
-    
-    const templates = {
-        start: [
-            `📚 开始学习 ${subject}！设定时长 ${duration}，加油！`,
-            `⏰ ${subject} 学习时间到！专注 ${duration}，开始吧~`,
-            `🎯 进入 ${subject} 学习模式，目标 ${duration}，集中注意力！`
-        ],
-        complete: [
-            `🎉 ${subject} 学习完成！坚持了 ${duration}，太棒了！`,
-            `✅ ${subject} 计时结束！${duration} 的努力不会白费~`,
-            `🏆 恭喜完成 ${subject} 的 ${duration} 学习！休息一下吧~`
-        ],
-        breakStart: [
-            `☕ 休息时间 ${duration}，放松一下~`,
-            `😌 休息 ${duration}，喝口水活动活动~`
-        ],
-        breakEnd: [
-            `⏰ 休息结束！准备开始下一个番茄吧~`,
-            `🔔 休息时间到，继续加油！`
-        ],
-        milestone: [
-            `🌟 太厉害了！今天已经学习了 {hours} 小时！你是最棒的！`,
-            `💪 {hours} 小时的学习！这个成就令人敬佩！`,
-            `🔥 {hours} 小时的专注！你的毅力让人惊叹！`
-        ]
+    const charName = getCharacterName();
+    const s = buildStudySummary();
+    const isCountdown = StudyTimer.timerType === 'countdown';
+    const isStopwatch = StudyTimer.timerType === 'stopwatch';
+
+    // 时长转为人类可读文字
+    const totalMinutes = isStopwatch
+        ? Math.round(StudyTimer.elapsedSeconds / 60)
+        : Math.round(StudyTimer.totalDuration / 60);
+    const durationText = totalMinutes >= 60
+        ? `${Math.floor(totalMinutes / 60)}小时${totalMinutes % 60 > 0 ? totalMinutes % 60 + '分钟' : ''}`
+        : `${totalMinutes}分钟`;
+    // 正计时还需要实际经过的时间（与设定的区别）
+    const elapsedMinutes = isStopwatch ? Math.round(StudyTimer.elapsedSeconds / 60) : totalMinutes;
+    const elapsedText = elapsedMinutes >= 60
+        ? `${Math.floor(elapsedMinutes / 60)}小时${elapsedMinutes % 60 > 0 ? elapsedMinutes % 60 + '分钟' : ''}`
+        : `${elapsedMinutes}分钟`;
+
+    const ctx = getContext();
+
+    // ===== 学习数据卡片 =====
+    const pomodoroLabel = isStopwatch ? '自由计时' : `番茄 #${StudyTimer.pomodoroCount + (scene === 'complete' ? 0 : 1)}`;
+    const dataCard = [
+        `科目：「${subject}」  |  时长：${durationText}  |  ${pomodoroLabel}`,
+        `今日 ${s.totalHours}h  |  本周 ${s.weekHours}h  |  累计 🍅×${StudyTimer.pomodoroCount}`,
+    ].join('\n');
+
+    // ===== 场景 quiet prompt（倒计时 / 正计时 分开）=====
+    const scenePrompts = {
+        // ---- 倒计时：有明确目标和终点 ----
+        start_countdown:
+            `(OOC: 用户设下了番茄钟——「${subject}」，倒计时 ${durationText}。\n` +
+            `${dataCard}\n` +
+            `作为${charName || '角色'}，结合上下文做出回应。)`,
+
+        complete_countdown:
+            `(OOC: 叮！番茄钟响了。用户完成了「${subject}」的 ${durationText} 专注。\n` +
+            `${dataCard}\n` +
+            `作为${charName || '角色'}，结合上下文做出回应。)`,
+
+        // ---- 正计时：无固定终点，自由记录 ----
+        start_stopwatch:
+            `(OOC: 用户按下了正计时——「${subject}」，没有时间限制，自由记录投入时长。\n` +
+            `${dataCard}\n` +
+            `作为${charName || '角色'}，结合上下文做出回应)`,
+
+        complete_stopwatch:
+            `(OOC: 用户停下了正计时——「${subject}」，这段自由学习持续了 ${elapsedText}。\n` +
+            `${dataCard}\n` +
+            `作为${charName || '角色'}结合上下文做出回应。)`,
+
+        // ---- 休息（与倒计时/正计时无关）----
+        breakStart:
+            `(OOC: 用户停下了，进入 ${durationText} 的休息时间，刚学完「${subject}」。\n` +
+            `${dataCard}\n` +
+            `作为${charName || '角色'}，结合上下文做出回应。)`,
+
+        breakEnd:
+            `(OOC: 休息结束了。用户准备继续。\n` +
+            `${dataCard}\n` +
+            `作为${charName || '角色'}，提醒用户回到学习。)`,
+
+        // ---- 里程碑（与计时模式无关）----
+        milestone:
+            `(OOC: 里程碑！用户今天累计学习 ${s.totalHours} 小时。\n` +
+            `${dataCard}\n` +
+            `作为${charName || '角色'}，结合上下文做出回应。)`
     };
-    
-    let message;
-    if (StudyTimer.settings.aiMessageMode === 'template') {
-        // 固定模板模式
-        const pool = templates[scene] || templates.start;
-        message = pool[Math.floor(Math.random() * pool.length)];
-        message = message.replace('{hours}', formatHours(getTodayTotalSeconds()));
-        sendSystemMessage(message);
-    } else {
-        // auto 模式：尝试触发 AI 生成消息
-        const pool = templates[scene] || templates.start;
-        message = pool[Math.floor(Math.random() * pool.length)];
-        message = message.replace('{hours}', formatHours(getTodayTotalSeconds()));
-        
-        // 如果 ST 支持，构造提示词让 AI 生成
-        const ctx = getContext();
-        if (ctx && typeof ctx.generateRaw === 'function') {
-            try {
-                const prompt = scene === 'start'
-                    ? `[系统提示：用户刚刚开始了${subject}的番茄钟学习，时长${duration}。请作为角色
-                    ，用自然的话语鼓励用户，回复要简短（1-2句话），语气温柔鼓励。不要用任何格式标记。]`
-                    : scene === 'complete'
-                        ? `[系统提示：用户完成了${subject}的${duration}学习。请作为角色回复用户，回复要简短（1-2句话），表达认可和鼓励。不要用任何格式标记。]`
-                        : scene === 'milestone'
-                            ? `[系统提示：用户今天已经学习了${formatHours(getTodayTotalSeconds())}小时！请作为角色赞美用户的毅力，回复简短有力（1-2句话）。不要用任何格式标记。]`
-                            : `[系统提示：学习计时器触发事件：${scene}，科目：${subject}。请简短回应（1句话）。不要用任何格式标记。]`;
-                
-                const result = await ctx.generateRaw(prompt, '', false, false, '');
-                if (result && typeof result === 'string' && result.trim()) {
-                    sendSystemMessage(result.trim());
-                    return;
-                }
-            } catch { /* 回退到模板 */ }
+
+    // 根据计时模式选择正确的 start / complete 提示词
+    const promptKey = (scene === 'start' || scene === 'complete')
+        ? `${scene}_${isCountdown ? 'countdown' : isStopwatch ? 'stopwatch' : 'countdown'}`
+        : scene;
+
+    try {
+        // 使用 ctx.generate('normal', { quiet_prompt }) 让角色看到学习事件后自然回应，
+        // 消息通过 saveReply 正常写入聊天框。
+        const hasGenerate = ctx && typeof ctx.generate === 'function';
+        console.log('[StudyTimer] 🔧 环境检测', { hasCtx: !!ctx, hasGenerate, charName });
+
+        if (hasGenerate) {
+            const quietPrompt = scenePrompts[promptKey] || scenePrompts.start_countdown;
+            console.log('[StudyTimer] 🚀 调用 generate(normal) 触发角色回复, promptKey:', promptKey);
+            await ctx.generate('normal', { quiet_prompt: quietPrompt, force_name2: true });
+            console.log('[StudyTimer] ✅ 角色回复已生成并写入聊天');
+        } else {
+            console.warn('[StudyTimer] ⚠ ctx.generate 不可用，使用系统消息回退');
+            const labels = { start: '开始学习', complete: '学习完成', breakStart: '休息中', breakEnd: '休息结束', milestone: `${s.totalHours}h 里程碑` };
+            sendSystemMessage(`🍅 ${subject} · ${labels[scene] || scene} · ${durationText}`);
         }
-        sendSystemMessage(message);
+
+    } catch (err) {
+        console.error('[StudyTimer] ❌ 角色回复失败:', err.message, err.stack);
+        const labels = { start: '开始学习', complete: '学习完成', breakStart: '休息中', breakEnd: '休息结束', milestone: `🎉 ${s.totalHours}h 里程碑！` };
+        sendSystemMessage(`🍅 ${subject} · ${labels[scene] || scene} · ${durationText} · 🍅×${StudyTimer.pomodoroCount}`);
     }
 }
 
@@ -375,6 +464,115 @@ function getWeeklyStats() {
         stats[key] = StudyTimer.dailyRecords[key] || {};
     }
     return { weekKeys, stats };
+}
+
+// ============ 世界书（World Info / Lorebook）集成 ============
+
+/**
+ * 将当前学习数据保存为世界书条目
+ * 通过 SillyTavern 的 /api/worldinfo/edit 接口写入
+ * 关键词包括：学习、study、番茄钟、各科目名，使 AI 角色能自然触发
+ */
+async function saveToWorldInfo() {
+    const s = buildStudySummary();
+    const subjects = StudyTimer.settings.subjects;
+    const bookName = StudyTimer.settings.worldInfoBook || '学习记录';
+    const keywords = ['学习', 'study', '番茄钟', 'pomodoro', '计时', ...subjects];
+
+    // 构建条目内容
+    const contentLines = [
+        `【用户学习记录 - ${s.todayKey}】`,
+        ``,
+        `📊 今日统计：`,
+    ];
+    for (const [subj, secs] of Object.entries(StudyTimer.dailyRecords[s.todayKey] || {})) {
+        contentLines.push(`  · ${subj}：${formatTime(secs)}`);
+    }
+    contentLines.push(`  总计：${formatTime(s.totalSec)}（${s.totalHours} 小时）`);
+    contentLines.push(`  番茄数：${s.pomodoroCount} 个`);
+    contentLines.push(``);
+    contentLines.push(`📅 本周累计：${s.weekHours} 小时`);
+    contentLines.push(``);
+    contentLines.push(`📚 学习科目：${subjects.join('、')}`);
+    contentLines.push(``);
+    contentLines.push(`（此条目由番茄学习计时器自动更新）`);
+
+    const content = contentLines.join('\n');
+
+    try {
+        // 先获取现有世界书数据
+        const ctx = getContext();
+        let existingData = { entries: {} };
+
+        // 尝试通过 ST 的 worldInfoCache 获取
+        try {
+            if (typeof worldInfoCache !== 'undefined' && worldInfoCache.get) {
+                const cached = worldInfoCache.get(bookName);
+                if (cached) existingData = JSON.parse(JSON.stringify(cached));
+            }
+        } catch {}
+
+        // 查找是否已有学习记录条目，否则创建新条目
+        const STUDY_ENTRY_UID = 9999001; // 固定UID便于更新
+        let entry = existingData.entries?.[STUDY_ENTRY_UID];
+
+        if (!entry) {
+            // 创建新条目
+            entry = {
+                uid: STUDY_ENTRY_UID,
+                key: keywords,
+                keysecondary: [],
+                content: content,
+                comment: `🍅 学习记录 (${s.todayKey})`,
+                constant: false,
+                selective: false,
+                order: 100,
+                position: 0, // before chat
+                depth: 4,
+                probability: null,
+                useProbability: false,
+                group: '',
+                groupWeight: 0,
+                groupOverride: false,
+                disable: false,
+                excludeRecursion: false,
+                displayIndex: STUDY_ENTRY_UID,
+            };
+        } else {
+            // 更新现有条目
+            entry.key = keywords;
+            entry.content = content;
+            entry.comment = `🍅 学习记录 (${s.todayKey})`;
+        }
+
+        existingData.entries[STUDY_ENTRY_UID] = entry;
+
+        // 获取 ST 的认证请求头（包含 CSRF Token）
+        let reqHeaders = { 'Content-Type': 'application/json' };
+        try {
+            const ctx = getContext();
+            if (ctx && typeof ctx.getRequestHeaders === 'function') {
+                reqHeaders = ctx.getRequestHeaders();
+            }
+        } catch {}
+
+        // 发送保存请求
+        const response = await fetch('/api/worldinfo/edit', {
+            method: 'POST',
+            headers: reqHeaders,
+            body: JSON.stringify({ name: bookName, data: existingData }),
+        });
+
+        if (response.ok) {
+            showToast(`📖 学习数据已同步到世界书「${bookName}」！`);
+            console.log('[StudyTimer] ✅ 世界书已更新:', bookName);
+        } else {
+            throw new Error(`HTTP ${response.status}`);
+        }
+    } catch (err) {
+        console.error('[StudyTimer] ❌ 世界书保存失败:', err);
+        showToast('⚠ 世界书保存失败，请检查控制台');
+    }
 }
 
 // ============ 计时核心 ============
@@ -1533,6 +1731,7 @@ function buildPanelHTML() {
         <div class="bottom-toolbar">
             <button class="tool-btn" id="st-tool-stats">📊 统计</button>
             <button class="tool-btn" id="st-tool-time">🕐 当前</button>
+            <button class="tool-btn" id="st-tool-world">📖 世界书</button>
             <button class="tool-btn" id="st-tool-settings">⚙ 设置</button>
             <button class="tool-btn" id="st-tool-ai">🤖 AI消息</button>
         </div>
@@ -1658,6 +1857,12 @@ function bindPanelEvents(panel) {
             const now = new Date();
             showToast(`🕐 ${now.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`);
         });
+    }
+
+    // 保存到世界书
+    const toolWorld = panel.querySelector('#st-tool-world');
+    if (toolWorld) {
+        toolWorld.addEventListener('click', () => { console.log('[StudyTimer] 📖 保存到世界书'); saveToWorldInfo(); });
     }
 
     const toolSettings = panel.querySelector('#st-tool-settings');
@@ -1950,20 +2155,16 @@ function showSettingsPanel() {
             <input type="text" id="st-set-goals" value="${escapeHTML(Object.entries(s.dailyGoals || {}).map(([k,v]) => `${k}=${v}`).join(','))}" style="width:180px;">
         </div>
         <div class="setting-item">
-            <span>AI 角色互动</span>
+            <span>AI 角色互动（学习事件触发角色回应）</span>
             <div class="toggle-switch ${s.aiInteractionEnabled ? 'on' : ''}" id="st-set-ai-enabled"></div>
-        </div>
-        <div class="setting-item">
-            <span>AI 消息模式</span>
-            <select id="st-set-ai-mode">
-                <option value="auto" ${s.aiMessageMode === 'auto' ? 'selected' : ''}>自动 (AI生成)</option>
-                <option value="template" ${s.aiMessageMode === 'template' ? 'selected' : ''}>固定模板</option>
-                <option value="off" ${s.aiMessageMode === 'off' ? 'selected' : ''}>关闭</option>
-            </select>
         </div>
         <div class="setting-item">
             <span>自动开始休息</span>
             <div class="toggle-switch ${s.autoStartBreak ? 'on' : ''}" id="st-set-auto-break"></div>
+        </div>
+        <div class="setting-item">
+            <span>世界书名称</span>
+            <input type="text" id="st-set-world-book" value="${escapeHTML(s.worldInfoBook || '学习记录')}" style="width:150px;">
         </div>
         <div class="setting-item">
             <span>提示音量</span>
@@ -1995,8 +2196,8 @@ function showSettingsPanel() {
         StudyTimer.settings.longBreakInterval = parseInt(document.getElementById('st-set-long-interval').value) || 4;
         StudyTimer.settings.alertVolume = parseFloat(document.getElementById('st-set-volume').value) || 0.7;
         StudyTimer.settings.aiInteractionEnabled = document.getElementById('st-set-ai-enabled').classList.contains('on');
-        StudyTimer.settings.aiMessageMode = document.getElementById('st-set-ai-mode').value;
         StudyTimer.settings.autoStartBreak = document.getElementById('st-set-auto-break').classList.contains('on');
+        StudyTimer.settings.worldInfoBook = document.getElementById('st-set-world-book').value.trim() || '学习记录';
 
         // 科目列表
         const subsStr = document.getElementById('st-set-subjects').value;
@@ -2030,14 +2231,9 @@ function showSettingsPanel() {
 }
 
 function toggleAIMode() {
-    const modes = ['auto', 'template', 'off'];
-    const labels = { auto: 'AI自动', template: '固定模板', off: '已关闭' };
-    const idx = modes.indexOf(StudyTimer.settings.aiMessageMode);
-    const next = modes[(idx + 1) % modes.length];
-    StudyTimer.settings.aiMessageMode = next;
-    StudyTimer.settings.aiInteractionEnabled = next !== 'off';
+    StudyTimer.settings.aiInteractionEnabled = !StudyTimer.settings.aiInteractionEnabled;
     saveSettings();
-    showToast(`🤖 AI消息: ${labels[next]}`);
+    showToast(StudyTimer.settings.aiInteractionEnabled ? '🤖 AI角色互动：已开启' : '🔇 AI角色互动：已关闭');
 }
 
 // ============ 斜杠命令注册 ============
@@ -2199,6 +2395,12 @@ function registerSlashCommands() {
         saveSettings();
         refreshSubjectChips();
         sendSystemMessage(`✅ 已添加科目: ${subject}`);
+    });
+
+    // /study-world 保存学习数据到世界书
+    ctx.registerSlashCommand('study-world', async () => {
+        sendSystemMessage('📖 正在保存学习数据到世界书...');
+        await saveToWorldInfo();
     });
 
     // /study-remove-subject 科目名
