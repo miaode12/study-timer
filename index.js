@@ -543,7 +543,7 @@ function createStyles() {
     const css = `
 /* ===== 番茄学习计时器 - 手机专用样式 ===== */
 #study-timer-overlay {
-    position: fixed;
+    position: absolute;
     top: 0; left: 0; right: 0; bottom: 0;
     z-index: 2147483644;
     background: rgba(0,0,0,0.4);
@@ -557,41 +557,49 @@ function createStyles() {
 
 #study-timer-floating-btn {
     position: fixed;
-    bottom: 20px;
-    right: 16px;
+    top: 50%;
+    left: 50%;
     z-index: 2147483646;
     width: 52px;
     height: 52px;
     border-radius: 50%;
-    background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+    background: linear-gradient(135deg, #f38ba8, #fab387);
     border: none;
-    box-shadow: 0 4px 15px rgba(238, 90, 36, 0.5);
-    cursor: pointer;
+    box-shadow: 0 4px 15px rgba(243, 139, 168, 0.45);
+    cursor: grab;
     font-size: 24px;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: transform 0.2s, box-shadow 0.2s;
+    transition: box-shadow 0.2s;
     -webkit-tap-highlight-color: transparent;
     user-select: none;
     -webkit-user-select: none;
+    touch-action: none;
 }
 #study-timer-floating-btn:active {
-    transform: scale(0.92);
-    box-shadow: 0 2px 8px rgba(238, 90, 36, 0.4);
+    box-shadow: 0 2px 8px rgba(243, 139, 168, 0.35);
+}
+#study-timer-floating-btn.dragging {
+    cursor: grabbing;
+    transition: none;
+    box-shadow: 0 8px 25px rgba(243, 139, 168, 0.55);
 }
 #study-timer-floating-btn.running {
-    background: linear-gradient(135deg, #2ed573, #7bed9f);
-    box-shadow: 0 4px 15px rgba(46, 213, 115, 0.5);
+    background: linear-gradient(135deg, #a6e3a1, #94e2d5);
+    box-shadow: 0 4px 15px rgba(166, 227, 161, 0.45);
     animation: pulse-green 2s infinite;
 }
+#study-timer-floating-btn.running.dragging {
+    animation: none;
+}
 #study-timer-floating-btn.paused {
-    background: linear-gradient(135deg, #ffa502, #ff6348);
+    background: linear-gradient(135deg, #fab387, #f38ba8);
     animation: none;
 }
 @keyframes pulse-green {
-    0%, 100% { box-shadow: 0 4px 15px rgba(46, 213, 115, 0.5); }
-    50% { box-shadow: 0 4px 25px rgba(46, 213, 115, 0.8); }
+    0%, 100% { box-shadow: 0 4px 15px rgba(166, 227, 161, 0.45); }
+    50% { box-shadow: 0 4px 25px rgba(166, 227, 161, 0.75); }
 }
 
 #study-timer-floating-btn .mini-time {
@@ -615,7 +623,7 @@ function createStyles() {
 
 /* ===== 主面板 ===== */
 #study-timer-panel {
-    position: fixed;
+    position: absolute;
     bottom: 0;
     left: 0;
     right: 0;
@@ -645,6 +653,35 @@ function createStyles() {
     cursor: grab;
 }
 
+/* 关闭按钮 */
+.panel-close-btn {
+    position: absolute;
+    top: 10px;
+    right: 14px;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    color: #a6adc8;
+    cursor: pointer;
+    border-radius: 50%;
+    border: none;
+    background: rgba(69, 71, 90, 0.6);
+    transition: background 0.2s, color 0.2s;
+    z-index: 10;
+    line-height: 1;
+    padding: 0;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+}
+.panel-close-btn:hover,
+.panel-close-btn:active {
+    background: #45475a;
+    color: #fff;
+}
+
 /* 计时显示 */
 #study-timer-panel .timer-display {
     text-align: center;
@@ -658,8 +695,8 @@ function createStyles() {
     color: #cdd6f4;
     line-height: 1.1;
 }
-#study-timer-panel .timer-display .time.countdown-active { color: #ff6b6b; }
-#study-timer-panel .timer-display .time.stopwatch-active { color: #2ed573; }
+#study-timer-panel .timer-display .time.countdown-active { color: #f38ba8; }
+#study-timer-panel .timer-display .time.stopwatch-active { color: #a6e3a1; }
 #study-timer-panel .timer-display .time.break-active { color: #89b4fa; }
 #study-timer-panel .timer-display .label {
     font-size: 13px;
@@ -691,9 +728,9 @@ function createStyles() {
     transform: scale(0.95);
 }
 #study-timer-panel .subject-chip.selected {
-    border-color: #ff6b6b;
-    background: #3b1f2b;
-    color: #ff6b6b;
+    border-color: #cba6f7;
+    background: #362035;
+    color: #cba6f7;
     font-weight: 600;
 }
 
@@ -721,8 +758,8 @@ function createStyles() {
     transform: scale(0.93);
 }
 #study-timer-panel .quick-time-btn.pomodoro {
-    border-color: #f38ba8;
-    color: #f38ba8;
+    border-color: #cba6f7;
+    color: #cba6f7;
 }
 
 /* 操作按钮 */
@@ -750,24 +787,24 @@ function createStyles() {
     transform: scale(0.94);
 }
 #study-timer-panel .btn-start {
-    background: #2ed573;
+    background: #a6e3a1;
     color: #1e1e2e;
 }
 #study-timer-panel .btn-pause {
-    background: #ffa502;
+    background: #fab387;
     color: #1e1e2e;
 }
 #study-timer-panel .btn-resume {
-    background: #2ed573;
+    background: #a6e3a1;
     color: #1e1e2e;
 }
 #study-timer-panel .btn-stop {
-    background: #ff4757;
-    color: #fff;
+    background: #f38ba8;
+    color: #1e1e2e;
 }
 #study-timer-panel .btn-forward {
-    background: #3742fa;
-    color: #fff;
+    background: #89b4fa;
+    color: #1e1e2e;
 }
 #study-timer-panel .btn-break {
     background: #89b4fa;
@@ -797,7 +834,7 @@ function createStyles() {
 
 /* 统计面板 */
 #study-timer-stats-panel {
-    position: fixed;
+    position: absolute;
     bottom: 0;
     left: 0;
     right: 0;
@@ -821,7 +858,7 @@ function createStyles() {
     font-weight: 700;
     text-align: center;
     margin-bottom: 16px;
-    color: #f5c542;
+    color: #f9e2af;
 }
 #study-timer-stats-panel .stat-row {
     display: flex;
@@ -843,7 +880,7 @@ function createStyles() {
 }
 #study-timer-stats-panel .progress-fill {
     height: 100%;
-    background: linear-gradient(90deg, #2ed573, #7bed9f);
+    background: linear-gradient(90deg, #a6e3a1, #94e2d5);
     border-radius: 3px;
     transition: width 0.3s ease;
 }
@@ -873,7 +910,7 @@ function createStyles() {
 
 /* 设置面板 */
 #study-timer-settings-panel {
-    position: fixed;
+    position: absolute;
     bottom: 0;
     left: 0;
     right: 0;
@@ -943,7 +980,7 @@ function createStyles() {
     transition: background 0.3s;
 }
 #study-timer-settings-panel .toggle-switch.on {
-    background: #2ed573;
+    background: #a6e3a1;
 }
 #study-timer-settings-panel .toggle-switch::after {
     content: '';
@@ -969,7 +1006,7 @@ function createStyles() {
     padding: 10px 30px;
     border-radius: 20px;
     border: none;
-    background: #2ed573;
+    background: #a6e3a1;
     color: #1e1e2e;
     font-size: 14px;
     font-weight: 600;
@@ -1008,17 +1045,243 @@ function createStyles() {
     opacity: 1;
 }
 
-/* 手机横屏优化 */
-@media (max-width: 768px) and (orientation: landscape) {
-    #study-timer-panel .timer-display .time {
-        font-size: 42px;
+/* ===== 响应式适配 ===== */
+
+/* ---------- 桌面端 (≥1024px) ---------- */
+@media (min-width: 1024px) {
+    /* 面板变为居中浮窗，不再是底部抽屉 */
+    #study-timer-panel,
+    #study-timer-stats-panel,
+    #study-timer-settings-panel {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        bottom: auto;
+        right: auto;
+        width: 420px;
+        max-width: 90vw;
+        max-height: 80vh;
+        border-radius: 20px;
+        transform: translate(-50%, -50%) scale(0.9);
+        opacity: 0;
+        pointer-events: none;
+        transition: transform 0.3s ease, opacity 0.3s ease;
     }
+    #study-timer-panel.visible,
+    #study-timer-stats-panel.visible,
+    #study-timer-settings-panel.visible {
+        transform: translate(-50%, -50%) scale(1);
+        opacity: 1;
+        pointer-events: auto;
+    }
+
+    /* 桌面端面板手柄隐藏 */
+    #study-timer-panel .panel-handle {
+        display: none;
+    }
+
+    /* 桌面端关闭按钮 */
+    #study-timer-panel .panel-close-btn,
+    #study-timer-stats-panel .panel-close-btn,
+    #study-timer-settings-panel .panel-close-btn {
+        top: 14px;
+        right: 18px;
+        width: 38px;
+        height: 38px;
+        font-size: 22px;
+    }
+
+    /* 桌面端面板内边距加大 */
+    #study-timer-panel,
+    #study-timer-stats-panel,
+    #study-timer-settings-panel {
+        padding: 28px 24px 32px;
+    }
+
+    /* 桌面端计时数字更大 */
+    #study-timer-panel .timer-display .time {
+        font-size: 72px;
+    }
+
+    /* 桌面端悬浮按钮稍大 */
+    #study-timer-floating-btn {
+        width: 60px;
+        height: 60px;
+        font-size: 28px;
+    }
+
+    /* 桌面端 Toast 定位调整 */
+    .study-timer-toast {
+        top: 80px;
+        font-size: 15px;
+        padding: 14px 28px;
+    }
+}
+
+/* ---------- 平板端 (768px-1023px) ---------- */
+@media (min-width: 768px) and (max-width: 1023px) {
+    #study-timer-panel,
+    #study-timer-stats-panel,
+    #study-timer-settings-panel {
+        max-height: 70vh;
+        border-radius: 24px 24px 0 0;
+    }
+
+    #study-timer-panel .timer-display .time {
+        font-size: 56px;
+    }
+
+    /* 平板端快捷按钮 */
     #study-timer-panel .quick-time-row {
-        gap: 6px;
+        gap: 10px;
     }
     #study-timer-panel .quick-time-btn {
-        padding: 8px 14px;
+        padding: 12px 22px;
+        font-size: 16px;
+    }
+
+    /* 平板端操作按钮 */
+    #study-timer-panel .btn {
+        padding: 14px 28px;
+        font-size: 16px;
+    }
+
+    #study-timer-floating-btn {
+        width: 56px;
+        height: 56px;
+    }
+}
+
+/* ---------- 手机竖屏 (≤450px) ---------- */
+@media (max-width: 450px) {
+    #study-timer-panel,
+    #study-timer-stats-panel,
+    #study-timer-settings-panel {
+        border-radius: 16px 16px 0 0;
+    }
+
+    #study-timer-settings-panel .setting-item input[type="text"] {
+        width: 100px;
+    }
+    #study-timer-settings-panel .setting-item input[type="number"] {
+        width: 55px;
+    }
+    #study-timer-settings-panel .setting-item {
         font-size: 13px;
+    }
+
+    #study-timer-stats-panel .stat-row {
+        font-size: 13px;
+    }
+}
+
+/* ---------- 超小屏 (≤360px) ---------- */
+@media (max-width: 360px) {
+    #study-timer-panel .timer-display .time {
+        font-size: 44px;
+    }
+
+    #study-timer-panel .quick-time-btn {
+        padding: 7px 12px;
+        font-size: 13px;
+        border-radius: 14px;
+    }
+
+    #study-timer-panel .quick-time-row {
+        gap: 5px;
+    }
+
+    #study-timer-panel .btn {
+        padding: 10px 18px;
+        font-size: 13px;
+    }
+
+    #study-timer-panel .subject-chip {
+        padding: 6px 12px;
+        font-size: 12px;
+    }
+
+    #study-timer-panel .tool-btn {
+        padding: 6px 12px;
+        font-size: 12px;
+    }
+
+    .study-timer-toast {
+        font-size: 12px;
+        padding: 10px 18px;
+    }
+
+    #study-timer-floating-btn {
+        width: 44px;
+        height: 44px;
+        font-size: 20px;
+    }
+}
+
+/* ---------- 手机横屏 ---------- */
+@media (max-width: 900px) and (orientation: landscape) {
+    #study-timer-panel .timer-display .time {
+        font-size: 38px;
+    }
+    #study-timer-panel .timer-display {
+        padding: 4px 0 8px;
+    }
+    #study-timer-panel .quick-time-row {
+        gap: 5px;
+        margin-bottom: 8px;
+    }
+    #study-timer-panel .quick-time-btn {
+        padding: 7px 12px;
+        font-size: 13px;
+    }
+    #study-timer-panel .subject-row {
+        margin-bottom: 8px;
+    }
+    #study-timer-panel .action-row {
+        margin-bottom: 8px;
+    }
+    #study-timer-panel .btn {
+        padding: 8px 16px;
+        font-size: 13px;
+    }
+    #study-timer-panel .tool-btn {
+        padding: 6px 12px;
+        font-size: 11px;
+    }
+    #study-timer-panel,
+    #study-timer-stats-panel,
+    #study-timer-settings-panel {
+        max-height: 90vh;
+        padding: 12px 16px 20px;
+    }
+    #study-timer-panel .panel-handle {
+        margin-bottom: 10px;
+    }
+}
+
+/* ---------- 安全区域 (刘海屏/底部指示条) ---------- */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+    #study-timer-panel,
+    #study-timer-stats-panel,
+    #study-timer-settings-panel {
+        padding-bottom: calc(28px + env(safe-area-inset-bottom));
+    }
+}
+
+/* ---------- 减少动画 (用户偏好) ---------- */
+@media (prefers-reduced-motion: reduce) {
+    #study-timer-panel,
+    #study-timer-stats-panel,
+    #study-timer-settings-panel {
+        transition: none;
+    }
+    #study-timer-floating-btn {
+        animation: none;
+        transition: none;
+    }
+    @keyframes pulse-green {
+        0%, 100% { box-shadow: 0 4px 15px rgba(166, 227, 161, 0.45); }
+        50% { box-shadow: 0 4px 15px rgba(166, 227, 161, 0.45); }
     }
 }
 `;
@@ -1043,21 +1306,176 @@ function showToast(msg, duration = 2000) {
     toast._timeout = setTimeout(() => toast.classList.remove('show'), duration);
 }
 
+// ============ 悬浮球拖拽 ============
+
+function setupDrag(btn) {
+    let dragging = false;
+    let startX, startY, startLeft, startTop;
+    let hasMoved = false; // 区分点击和拖拽
+
+    function getClientPos(e) {
+        if (e.touches && e.touches.length > 0) {
+            return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        }
+        return { x: e.clientX, y: e.clientY };
+    }
+
+    function onStart(e) {
+        // 忽略多点触控
+        if (e.touches && e.touches.length > 1) return;
+
+        dragging = true;
+        hasMoved = false;
+        const pos = getClientPos(e);
+        startX = pos.x;
+        startY = pos.y;
+
+        const rect = btn.getBoundingClientRect();
+        startLeft = rect.left;
+        startTop = rect.top;
+
+        btn.classList.add('dragging');
+
+        // 注意：不在这里调用 preventDefault()！
+        // 移动端 touchstart 的 preventDefault 会阻止后续 click 事件，
+        // 导致点击悬浮球无法打开面板。
+        // 只在 onMove 中确认拖拽后才阻止默认行为。
+    }
+
+    function onMove(e) {
+        if (!dragging) return;
+
+        const pos = getClientPos(e);
+        const dx = pos.x - startX;
+        const dy = pos.y - startY;
+
+        // 移动超过 3px 才算拖拽
+        if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+            if (!hasMoved) {
+                hasMoved = true;
+                // 确认是拖拽后才阻止默认行为（防止页面滚动等）
+                e.preventDefault();
+            }
+        }
+
+        if (!hasMoved) return; // 还没超过阈值，不移动
+
+        let newLeft = startLeft + dx;
+        let newTop = startTop + dy;
+
+        // 边界限制：不超出视口
+        const btnW = btn.offsetWidth;
+        const btnH = btn.offsetHeight;
+        newLeft = Math.max(0, Math.min(window.innerWidth - btnW, newLeft));
+        newTop = Math.max(0, Math.min(window.innerHeight - btnH, newTop));
+
+        btn.style.left = newLeft + 'px';
+        btn.style.top = newTop + 'px';
+    }
+
+    function onEnd(e) {
+        if (!dragging) return;
+        dragging = false;
+        btn.classList.remove('dragging');
+
+        // 如果发生了拖拽，阻止随后的 click 事件
+        if (hasMoved) {
+            const preventClick = (ev) => {
+                ev.stopPropagation();
+                ev.preventDefault();
+                btn.removeEventListener('click', preventClick, true);
+            };
+            btn.addEventListener('click', preventClick, true);
+            // 下一帧清除（防止多次拖拽后堆积）
+            setTimeout(() => btn.removeEventListener('click', preventClick, true), 50);
+        }
+
+        // 保存拖拽位置到 localStorage
+        try {
+            const rect = btn.getBoundingClientRect();
+            localStorage.setItem('study_timer_btnPos', JSON.stringify({
+                left: rect.left,
+                top: rect.top
+            }));
+        } catch { /* ignore */ }
+    }
+
+    // 鼠标事件
+    btn.addEventListener('mousedown', onStart);
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onEnd);
+
+    // 触屏事件
+    btn.addEventListener('touchstart', onStart, { passive: false });
+    document.addEventListener('touchmove', onMove, { passive: false });
+    document.addEventListener('touchend', onEnd);
+    document.addEventListener('touchcancel', onEnd);
+
+    // 窗口大小变化时确保按钮不超出边界
+    window.addEventListener('resize', () => {
+        const rect = btn.getBoundingClientRect();
+        const btnW = btn.offsetWidth;
+        const btnH = btn.offsetHeight;
+        let left = rect.left;
+        let top = rect.top;
+
+        if (left + btnW > window.innerWidth) left = window.innerWidth - btnW;
+        if (top + btnH > window.innerHeight) top = window.innerHeight - btnH;
+        if (left < 0) left = 0;
+        if (top < 0) top = 0;
+
+        btn.style.left = left + 'px';
+        btn.style.top = top + 'px';
+    });
+
+    // 恢复上次保存的位置，否则默认居中
+    restorePosition(btn);
+}
+
+function restorePosition(btn) {
+    // 先设置默认居中（CSS top:50%; left:50% 已经处理），
+    // 再检查是否有保存的位置
+    try {
+        const saved = localStorage.getItem('study_timer_btnPos');
+        if (saved) {
+            const pos = JSON.parse(saved);
+            const btnW = btn.offsetWidth || 52;
+            const btnH = btn.offsetHeight || 52;
+            // 确保保存的位置仍在可视范围内
+            const left = Math.max(0, Math.min(window.innerWidth - btnW, pos.left));
+            const top = Math.max(0, Math.min(window.innerHeight - btnH, pos.top));
+            btn.style.left = left + 'px';
+            btn.style.top = top + 'px';
+            return;
+        }
+    } catch { /* ignore */ }
+
+    // 默认居中：计算精确的居中位置
+    const btnW = btn.offsetWidth || 52;
+    const btnH = btn.offsetHeight || 52;
+    btn.style.left = ((window.innerWidth - btnW) / 2) + 'px';
+    btn.style.top = ((window.innerHeight - btnH) / 2) + 'px';
+}
+
 function createUI() {
     console.log('[StudyTimer] 🏗 开始创建 UI...');
 
-    // 浮动按钮 — 挂在 html 上，避免 ST mobile 的 body transform 导致 fixed 失效
+    // 浮动按钮 — 挂在 body 上，使用 position:fixed
+    // （ST 的 html 元素有 -webkit-transform 会导致 position:fixed 失效，但在 body 上正常工作）
     const floatingBtn = document.createElement('button');
     floatingBtn.id = 'study-timer-floating-btn';
     floatingBtn.innerHTML = '<span class="btn-icon">🍅</span><span class="mini-time"></span>';
     floatingBtn.addEventListener('click', togglePanel);
-    document.documentElement.appendChild(floatingBtn);
+    document.body.appendChild(floatingBtn);
 
-    // 遮罩层 — 同样挂在 html 上
+    // ===== 拖拽功能：鼠标 + 触屏 =====
+    setupDrag(floatingBtn);
+
+    // 遮罩层 — 同样挂在 body 上
     const overlay = document.createElement('div');
     overlay.id = 'study-timer-overlay';
     overlay.addEventListener('click', closeAllPanels);
-    document.documentElement.appendChild(overlay);
+    document.body.appendChild(overlay);
 
     // 主面板 — 挂在 body 上（抽屉面板不需要 fixed 到视口，跟着 body 滚动没问题）
     const panel = document.createElement('div');
@@ -1078,126 +1496,7 @@ function createUI() {
 
     console.log('[StudyTimer] ✅ UI 创建完成');
 
-    // ===== 手机调试面板：劫持 console 输出到可见面板 =====
-    setupMobileDebug();
-
-    // 延迟诊断：检查按钮是否真的可见
-    setTimeout(() => {
-        const btn = document.getElementById('study-timer-floating-btn');
-        const htmlStyle = getComputedStyle(document.documentElement);
-        const bodyStyle = getComputedStyle(document.body);
-        const htmlT = htmlStyle.transform;
-        const bodyT = bodyStyle.transform;
-        const hasTransform = htmlT !== 'none' || bodyT !== 'none';
-        const badge = document.getElementById('st-diag-badge');
-
-        if (!btn) {
-            if (badge) { badge.textContent = '❌ 按钮丢失'; badge.style.background = '#ff4757'; }
-            console.error('[StudyTimer] ❌ 浮动按钮元素丢失！');
-            return;
-        }
-
-        const r = btn.getBoundingClientRect();
-        const vis = r.width > 0 && r.height > 0;
-
-        if (!vis && hasTransform) {
-            if (badge) { badge.textContent = '⚠ fixed失效'; badge.style.background = '#ffa502'; }
-            console.warn('[StudyTimer] ⚠ fixed失效: 父级transform', {htmlT, bodyT});
-        } else if (!vis) {
-            if (badge) { badge.textContent = '⚠ 按钮隐藏'; badge.style.background = '#ffa502'; }
-            console.warn('[StudyTimer] ⚠ 按钮不可见 rect:', JSON.stringify(r));
-        } else {
-            if (badge) { badge.textContent = '✅ 可见'; badge.style.background = '#2ed573'; }
-            console.log('[StudyTimer] ✅ 按钮可见 rect:', JSON.stringify(r));
-        }
-
-        console.log('[StudyTimer] 🔍 htmlT=' + htmlT + ' bodyT=' + bodyT);
-
-        // 8秒后自动收起标签
-        setTimeout(() => {
-            if (badge) { badge.style.opacity = '0.5'; badge.style.fontSize = '10px'; }
-        }, 8000);
-    }, 800);
-
     return { floatingBtn, panel, statsPanel, settingsPanel, overlay };
-}
-
-/**
- * 手机调试面板：劫持 console 输出到一个可展开的浮动面板
- * 不需要 F12，直接在手机页面上看日志
- */
-function setupMobileDebug() {
-    // 诊断标签（可点击）
-    const badge = document.createElement('div');
-    badge.id = 'st-diag-badge';
-    badge.style.cssText = 'position:fixed;top:8px;left:8px;z-index:2147483647;'
-        + 'padding:4px 10px;border-radius:10px;font-size:12px;font-weight:700;'
-        + 'color:#fff;background:#ff4757;font-family:sans-serif;'
-        + 'box-shadow:0 2px 8px rgba(0,0,0,0.3);'
-        + 'cursor:pointer;transition:opacity 0.3s;';
-    badge.textContent = '⏳ 检测中...';
-    badge.title = '点击展开调试日志';
-    document.documentElement.appendChild(badge);
-
-    // 日志面板（默认隐藏，点击标签展开）
-    const logPanel = document.createElement('div');
-    logPanel.id = 'st-log-panel';
-    logPanel.style.cssText = 'position:fixed;top:36px;left:8px;right:8px;z-index:2147483646;'
-        + 'max-height:55vh;overflow-y:auto;background:#1e1e2e;color:#cdd6f4;'
-        + 'border-radius:12px;padding:10px;font-size:11px;font-family:monospace;'
-        + 'box-shadow:0 4px 20px rgba(0,0,0,0.6);display:none;'
-        + 'line-height:1.5;word-break:break-all;';
-    logPanel.innerHTML = '<div style="color:#89b4fa;text-align:center;margin-bottom:6px;">📋 调试日志 (点击标签关闭)</div>';
-    document.documentElement.appendChild(logPanel);
-
-    // 点击标签切换日志面板
-    badge.addEventListener('click', () => {
-        const show = logPanel.style.display === 'none';
-        logPanel.style.display = show ? 'block' : 'none';
-        badge.textContent = show ? '📋 日志中' : (badge.getAttribute('data-status') || '⏳');
-        logPanel.scrollTop = logPanel.scrollHeight;
-    });
-
-    // 日志缓冲区
-    const logLines = [];
-    const MAX_LINES = 80;
-    
-    function addLogLine(level, args) {
-        const time = new Date().toLocaleTimeString('zh-CN', {hour12: false});
-        const text = args.map(a => {
-            try { return typeof a === 'object' ? JSON.stringify(a) : String(a); }
-            catch { return String(a); }
-        }).join(' ');
-        const color = level === 'error' ? '#ff4757' : level === 'warn' ? '#ffa502' : '#a6e3a1';
-        const icon = level === 'error' ? '❌' : level === 'warn' ? '⚠' : '📎';
-        const line = `<div style="color:#6c7086">${time}</div><div style="color:${color};margin-bottom:4px;">${icon} ${escapeHTML(text)}</div>`;
-        logLines.push(line);
-        if (logLines.length > MAX_LINES) logLines.shift();
-        logPanel.innerHTML = '<div style="color:#89b4fa;text-align:center;margin-bottom:6px;">📋 调试日志</div>' + logLines.join('');
-        logPanel.scrollTop = logPanel.scrollHeight;
-    }
-
-    // 劫持 console
-    const origLog = console.log.bind(console);
-    const origWarn = console.warn.bind(console);
-    const origError = console.error.bind(console);
-
-    console.log = function(...args) {
-        origLog(...args);
-        try { addLogLine('log', args); } catch {}
-    };
-    console.warn = function(...args) {
-        origWarn(...args);
-        try { addLogLine('warn', args); } catch {}
-    };
-    console.error = function(...args) {
-        origError(...args);
-        try { addLogLine('error', args); } catch {}
-    };
-
-    // 保存状态引用
-    window.__stBadge = badge;
-    window.__stLogPanel = logPanel;
 }
 
 function buildPanelHTML() {
@@ -1207,6 +1506,7 @@ function buildPanelHTML() {
     ).join('');
 
     return `
+        <button class="panel-close-btn" id="st-panel-close" title="关闭">✕</button>
         <div class="panel-handle" id="st-panel-handle"></div>
         <div class="timer-display">
             <div class="time" id="st-time-display">00:00</div>
@@ -1246,68 +1546,147 @@ function escapeHTML(str) {
 }
 
 function bindPanelEvents(panel) {
+    console.log('[StudyTimer] 🔗 绑定面板事件...');
+
+    // 关闭按钮
+    const closeBtn = panel.querySelector('#st-panel-close');
+    if (closeBtn) {
+        console.log('[StudyTimer] ✅ 找到关闭按钮，绑定 click 事件');
+        closeBtn.addEventListener('click', (e) => {
+            console.log('[StudyTimer] ❎ X按钮 click 事件触发');
+            e.stopPropagation();
+            e.preventDefault();
+            closeAllPanels();
+        });
+        // 移动端额外绑定 touchend
+        closeBtn.addEventListener('touchend', (e) => {
+            console.log('[StudyTimer] ❎ X按钮 touchend 事件触发');
+            e.stopPropagation();
+            e.preventDefault();
+            closeAllPanels();
+        });
+    } else {
+        console.error('[StudyTimer] ❌ 关闭按钮 #st-panel-close 未找到！');
+    }
+
     // 科目选择
-    panel.querySelector('#st-subject-row').addEventListener('click', (e) => {
-        const chip = e.target.closest('.subject-chip');
-        if (!chip) return;
-        panel.querySelectorAll('.subject-chip').forEach(c => c.classList.remove('selected'));
-        chip.classList.add('selected');
-        StudyTimer.currentSubject = chip.dataset.subject;
-    });
+    const subjectRow = panel.querySelector('#st-subject-row');
+    if (subjectRow) {
+        subjectRow.addEventListener('click', (e) => {
+            const chip = e.target.closest('.subject-chip');
+            if (!chip) return;
+            console.log('[StudyTimer] 📚 选择科目:', chip.dataset.subject);
+            panel.querySelectorAll('.subject-chip').forEach(c => c.classList.remove('selected'));
+            chip.classList.add('selected');
+            StudyTimer.currentSubject = chip.dataset.subject;
+        });
+        console.log('[StudyTimer] ✅ 科目选择事件已绑定');
+    } else {
+        console.error('[StudyTimer] ❌ 科目行 #st-subject-row 未找到！');
+    }
 
     // 快捷时间按钮
-    panel.querySelector('.quick-time-row').addEventListener('click', (e) => {
-        const btn = e.target.closest('.quick-time-btn');
-        if (!btn) return;
-        const minutes = parseInt(btn.dataset.min);
-        if (StudyTimer.running) {
-            showToast('⚠ 请先停止当前计时');
-            return;
-        }
-        startCountdown(StudyTimer.currentSubject, minutes);
-    });
+    const quickRow = panel.querySelector('.quick-time-row');
+    if (quickRow) {
+        quickRow.addEventListener('click', (e) => {
+            const btn = e.target.closest('.quick-time-btn');
+            if (!btn) return;
+            const minutes = parseInt(btn.dataset.min);
+            console.log('[StudyTimer] ⏱ 快捷计时:', minutes, '分钟');
+            if (StudyTimer.running) {
+                showToast('⚠ 请先停止当前计时');
+                return;
+            }
+            startCountdown(StudyTimer.currentSubject, minutes);
+        });
+        console.log('[StudyTimer] ✅ 快捷时间事件已绑定');
+    } else {
+        console.error('[StudyTimer] ❌ 快捷时间行未找到！');
+    }
 
     // 正计时
-    panel.querySelector('#st-btn-forward').addEventListener('click', () => {
-        if (StudyTimer.running) {
-            showToast('⚠ 请先停止当前计时');
-            return;
-        }
-        startStopwatch(StudyTimer.currentSubject);
-    });
+    const btnForward = panel.querySelector('#st-btn-forward');
+    if (btnForward) {
+        btnForward.addEventListener('click', () => {
+            console.log('[StudyTimer] ▶ 正计时按钮点击');
+            if (StudyTimer.running) {
+                showToast('⚠ 请先停止当前计时');
+                return;
+            }
+            startStopwatch(StudyTimer.currentSubject);
+        });
+    }
 
     // 暂停
-    panel.querySelector('#st-btn-pause').addEventListener('click', pauseTimer);
+    const btnPause = panel.querySelector('#st-btn-pause');
+    if (btnPause) {
+        btnPause.addEventListener('click', () => { console.log('[StudyTimer] ⏸ 暂停'); pauseTimer(); });
+    }
+
     // 继续
-    panel.querySelector('#st-btn-resume').addEventListener('click', resumeTimer);
+    const btnResume = panel.querySelector('#st-btn-resume');
+    if (btnResume) {
+        btnResume.addEventListener('click', () => { console.log('[StudyTimer] ▶ 继续'); resumeTimer(); });
+    }
+
     // 停止
-    panel.querySelector('#st-btn-stop').addEventListener('click', stopTimer);
+    const btnStop = panel.querySelector('#st-btn-stop');
+    if (btnStop) {
+        btnStop.addEventListener('click', () => { console.log('[StudyTimer] ⏹ 停止'); stopTimer(); });
+    }
+
     // 休息
-    panel.querySelector('#st-btn-break').addEventListener('click', () => {
-        startBreak(StudyTimer.settings.shortBreakMinutes * 60, false);
-    });
+    const btnBreak = panel.querySelector('#st-btn-break');
+    if (btnBreak) {
+        btnBreak.addEventListener('click', () => {
+            console.log('[StudyTimer] ☕ 休息');
+            startBreak(StudyTimer.settings.shortBreakMinutes * 60, false);
+        });
+    }
 
     // 工具栏
-    panel.querySelector('#st-tool-stats').addEventListener('click', showStatsPanel);
-    panel.querySelector('#st-tool-time').addEventListener('click', () => {
-        const now = new Date();
-        showToast(`🕐 ${now.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`);
-    });
-    panel.querySelector('#st-tool-settings').addEventListener('click', showSettingsPanel);
-    panel.querySelector('#st-tool-ai').addEventListener('click', toggleAIMode);
+    const toolStats = panel.querySelector('#st-tool-stats');
+    if (toolStats) {
+        toolStats.addEventListener('click', () => { console.log('[StudyTimer] 📊 统计按钮'); showStatsPanel(); });
+    } else {
+        console.error('[StudyTimer] ❌ 统计按钮 #st-tool-stats 未找到！');
+    }
+
+    const toolTime = panel.querySelector('#st-tool-time');
+    if (toolTime) {
+        toolTime.addEventListener('click', () => {
+            const now = new Date();
+            showToast(`🕐 ${now.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`);
+        });
+    }
+
+    const toolSettings = panel.querySelector('#st-tool-settings');
+    if (toolSettings) {
+        toolSettings.addEventListener('click', () => { console.log('[StudyTimer] ⚙ 设置按钮'); showSettingsPanel(); });
+    }
+
+    const toolAI = panel.querySelector('#st-tool-ai');
+    if (toolAI) {
+        toolAI.addEventListener('click', () => { console.log('[StudyTimer] 🤖 AI消息按钮'); toggleAIMode(); });
+    }
+
+    console.log('[StudyTimer] ✅ 所有面板事件绑定完成');
 
     // 手柄拖拽关闭
     const handle = panel.querySelector('#st-panel-handle');
-    let startY = 0;
-    handle.addEventListener('touchstart', (e) => {
-        startY = e.touches[0].clientY;
-    });
-    handle.addEventListener('touchmove', (e) => {
-        const dy = e.touches[0].clientY - startY;
-        if (dy > 60) {
-            closeAllPanels();
-        }
-    });
+    if (handle) {
+        let startY = 0;
+        handle.addEventListener('touchstart', (e) => {
+            startY = e.touches[0].clientY;
+        });
+        handle.addEventListener('touchmove', (e) => {
+            const dy = e.touches[0].clientY - startY;
+            if (dy > 60) {
+                console.log('[StudyTimer] 👆 手柄拖拽关闭');
+                closeAllPanels();
+            }
+        });
+    }
 }
 
 function updateTimerDisplay() {
@@ -1389,33 +1768,79 @@ function updatePanelUI() {
 }
 
 function togglePanel() {
+    console.log('[StudyTimer] 🔘 togglePanel 被调用', {
+        pageX: window.event?.pageX,
+        pageY: window.event?.pageY,
+        clientX: window.event?.clientX,
+        clientY: window.event?.clientY
+    });
+
     const panel = document.getElementById('study-timer-panel');
     const overlay = document.getElementById('study-timer-overlay');
     const statsPanel = document.getElementById('study-timer-stats-panel');
     const settingsPanel = document.getElementById('study-timer-settings-panel');
+
+    if (!panel) {
+        console.error('[StudyTimer] ❌ togglePanel: 面板元素不存在！');
+        return;
+    }
 
     // 关闭其他面板
     if (statsPanel) statsPanel.classList.remove('visible');
     if (settingsPanel) settingsPanel.classList.remove('visible');
 
     const isVisible = panel.classList.contains('visible');
+    console.log('[StudyTimer] 📋 面板当前状态:', isVisible ? '可见→关闭' : '隐藏→打开');
+    console.log('[StudyTimer] 📋 panel.classList:', panel.className);
+
     if (isVisible) {
         panel.classList.remove('visible');
         if (overlay) overlay.classList.remove('visible');
+        console.log('[StudyTimer] 🔒 面板已关闭');
     } else {
         panel.classList.add('visible');
         if (overlay) overlay.classList.add('visible');
         refreshSubjectChips();
         updateTimerDisplay();
         updatePanelUI();
+        console.log('[StudyTimer] 🔓 面板已打开');
     }
+
+    // 诊断：检查面板的实际可见性
+    setTimeout(() => {
+        const style = getComputedStyle(panel);
+        const rect = panel.getBoundingClientRect();
+        console.log('[StudyTimer] 🔍 面板诊断:', {
+            className: panel.className,
+            transform: style.transform,
+            opacity: style.opacity,
+            display: style.display,
+            pointerEvents: style.pointerEvents,
+            rect: { top: rect.top, bottom: rect.bottom, height: rect.height }
+        });
+    }, 50);
 }
 
 function closeAllPanels() {
-    document.getElementById('study-timer-panel')?.classList.remove('visible');
-    document.getElementById('study-timer-stats-panel')?.classList.remove('visible');
-    document.getElementById('study-timer-settings-panel')?.classList.remove('visible');
-    document.getElementById('study-timer-overlay')?.classList.remove('visible');
+    console.log('[StudyTimer] ❎ closeAllPanels 被调用');
+    const panel = document.getElementById('study-timer-panel');
+    const stats = document.getElementById('study-timer-stats-panel');
+    const settings = document.getElementById('study-timer-settings-panel');
+    const overlay = document.getElementById('study-timer-overlay');
+
+    console.log('[StudyTimer] 关闭前状态:', {
+        panel: panel?.classList.contains('visible'),
+        stats: stats?.classList.contains('visible'),
+        settings: settings?.classList.contains('visible'),
+        overlay: overlay?.classList.contains('visible')
+    });
+
+    panel?.classList.remove('visible');
+    stats?.classList.remove('visible');
+    settings?.classList.remove('visible');
+    overlay?.classList.remove('visible');
+
+    console.log('[StudyTimer] ✅ 所有面板已关闭');
 }
 
 function refreshSubjectChips() {
@@ -1440,7 +1865,7 @@ function showStatsPanel() {
     const subjects = StudyTimer.settings.subjects;
     const totalSeconds = getTodayTotalSeconds();
 
-    let html = `<div class="stats-title">📊 今日学习统计</div>`;
+    let html = `<button class="panel-close-btn" onclick="document.getElementById('study-timer-stats-panel').classList.remove('visible');document.getElementById('study-timer-overlay').classList.remove('visible');">✕</button><div class="stats-title">📊 今日学习统计</div>`;
 
     for (const subject of subjects) {
         const secs = todayData[subject] || 0;
@@ -1498,6 +1923,7 @@ function showSettingsPanel() {
 
     const s = StudyTimer.settings;
     let html = `
+        <button class="panel-close-btn" onclick="document.getElementById('study-timer-settings-panel').classList.remove('visible');document.getElementById('study-timer-overlay').classList.remove('visible');">✕</button>
         <div class="settings-title">⚙ 计时器设置</div>
         <div class="setting-item">
             <span>番茄钟时长 (分钟)</span>
@@ -1619,6 +2045,12 @@ function toggleAIMode() {
 function registerSlashCommands() {
     const ctx = getContext();
     if (!ctx || !ctx.registerSlashCommand) return;
+
+    // 修补：新版 ST 的 registerSlashCommand 需要 aliases 参数（数组），
+    // 否则 SlashCommandParser 展开 undefined 会报 "not iterable" 错误
+    const origRegister = ctx.registerSlashCommand.bind(ctx);
+    ctx.registerSlashCommand = (name, cb, aliases, help) =>
+        origRegister(name, cb, aliases ?? [], help ?? '');
 
     // /study 科目 分钟数
     ctx.registerSlashCommand('study', (args) => {
