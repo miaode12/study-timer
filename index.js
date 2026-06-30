@@ -1078,31 +1078,51 @@ function createUI() {
 
     console.log('[StudyTimer] ✅ UI 创建完成');
 
-    // 验证浮动按钮是否真的渲染了，并诊断 transform 污染
+    // ===== 肉眼诊断标记：页面左上角彩色标签 =====
+    const badge = document.createElement('div');
+    badge.id = 'st-diag-badge';
+    badge.style.cssText = 'position:fixed;top:8px;left:8px;z-index:2147483647;'
+        + 'padding:4px 10px;border-radius:10px;font-size:12px;font-weight:700;'
+        + 'color:#fff;background:#ff4757;font-family:sans-serif;pointer-events:none;'
+        + 'box-shadow:0 2px 8px rgba(0,0,0,0.3);';
+    badge.textContent = '⏳ 检测中...';
+    document.documentElement.appendChild(badge);
+
+    // 延迟诊断：检查按钮是否真的可见
     setTimeout(() => {
         const btn = document.getElementById('study-timer-floating-btn');
-        if (btn) {
-            const btnRect = btn.getBoundingClientRect();
-            const htmlStyle = getComputedStyle(document.documentElement);
-            const bodyStyle = getComputedStyle(document.body);
-            const htmlTransform = htmlStyle.transform;
-            const bodyTransform = bodyStyle.transform;
-            
-            console.log('[StudyTimer] 🔍 浮动按钮位置:', JSON.stringify(btnRect));
-            console.log('[StudyTimer] 🔍 <html> transform:', htmlTransform, '| <body> transform:', bodyTransform);
-            
-            const isVisible = btnRect.width > 0 && btnRect.height > 0 && btnRect.bottom > 0;
-            if (!isVisible) {
-                console.warn('[StudyTimer] ⚠ 浮动按钮可能不可见！尝试备用挂载方式...');
-                document.body.appendChild(btn);
-            }
-            if (htmlTransform !== 'none' || bodyTransform !== 'none') {
-                console.warn('[StudyTimer] ⚠ 检测到父级 transform，position:fixed 可能失效！html=' + htmlTransform + ' body=' + bodyTransform);
-            }
-        } else {
+        const htmlStyle = getComputedStyle(document.documentElement);
+        const bodyStyle = getComputedStyle(document.body);
+        const htmlT = htmlStyle.transform;
+        const bodyT = bodyStyle.transform;
+        const hasTransform = htmlT !== 'none' || bodyT !== 'none';
+
+        if (!btn) {
+            badge.textContent = '❌ 按钮丢失';
+            badge.style.background = '#ff4757';
             console.error('[StudyTimer] ❌ 浮动按钮元素丢失！');
+            return;
         }
-    }, 500);
+
+        const r = btn.getBoundingClientRect();
+        const vis = r.width > 0 && r.height > 0;
+
+        if (!vis && hasTransform) {
+            badge.textContent = '⚠ fixed失效(t)';
+            badge.style.background = '#ffa502';
+            console.warn('[StudyTimer] ⚠ fixed失效: 父级transform', {htmlT, bodyT});
+        } else if (!vis) {
+            badge.textContent = '⚠ 按钮隐藏';
+            badge.style.background = '#ffa502';
+            console.warn('[StudyTimer] ⚠ 按钮不可见 rect:', JSON.stringify(r));
+        } else {
+            badge.textContent = '✅ 按钮可见';
+            badge.style.background = '#2ed573';
+            console.log('[StudyTimer] ✅ 按钮可见 rect:', JSON.stringify(r));
+        }
+
+        console.log('[StudyTimer] 🔍 htmlT=' + htmlT + ' bodyT=' + bodyT);
+    }, 800);
 
     return { floatingBtn, panel, statsPanel, settingsPanel, overlay };
 }
