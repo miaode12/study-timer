@@ -1,1473 +1,1760 @@
-import { SlashCommandParser } from '../../../slash-commands/SlashCommandParser.js';
-import { SlashCommand } from '../../../slash-commands/SlashCommand.js';
-import { ARGUMENT_TYPE, SlashCommandArgument, SlashCommandNamedArgument } from '../../../slash-commands/SlashCommandArgument.js';
-import { extension_settings } from '../../../extensions.js';
-import { name2, characters, this_chid, getThumbnailUrl, saveChatConditional, addOneMessage, chat, generateQuietPrompt } from '../../../../script.js';
-import { eventSource, event_types } from '../../../events.js';
-import { getMessageTimeStamp } from '../../../RossAscends-mods.js';
-import { ToolManager } from '../../../tool-calling.js';
+/**
+ * 🍅 番茄学习计时器 - SillyTavern 手机专用扩展
+ * Pomodoro Study Timer Extension for SillyTavern (Mobile-First)
+ */
 
-const MODULE_NAME = 'study-timer';
-const STORAGE_KEY = 'study_timer_stats';
-
-// ====================  Logging  ====================
-/** @param {string} msg @param {...any} args */
-function log(msg, ...args) {
-    const ts = new Date().toISOString().split('T')[1].slice(0, 12);
-    console.log(`[StudyTimer ${ts}] ${msg}`, ...args);
-}
-/** @param {string} msg @param {...any} args */
-function logWarn(msg, ...args) {
-    const ts = new Date().toISOString().split('T')[1].slice(0, 12);
-    console.warn(`[StudyTimer ${ts}] ${msg}`, ...args);
-}
-/** @param {string} msg @param {...any} args */
-function logErr(msg, ...args) {
-    const ts = new Date().toISOString().split('T')[1].slice(0, 12);
-    console.error(`[StudyTimer ${ts}] ${msg}`, ...args);
-}
-
-log('模块加载，MODULE_NAME=', MODULE_NAME);
-
-/** @type {ReturnType<typeof setInterval>|null} */
-let timerInterval = null;
-/** @type {number|null} */
-let timerEndTime = null;
-let timerSubject = '';
-let timerMinutes = 0;
-let timerPaused = false;
-let timerRunning = false;
-let timerForward = false;
-let pausedRemainingMs = 0;
-/** @type {number|null} */
-let timerStartedAt = null;
-
-// Default settings
-const defaultSettings = {
-    study_complete_message: '（她瞥了一眼计时器，微微挑眉）\n{{time}}，时间到了。{{subject}}的{{minutes}}分钟计时结束。\n\n你今天的{{subject}}学习时长：{{today_subject}}分钟。\n今日总计学习时长：{{today_total}}分钟。\n\n效率如何？我期待看到可量化的成果——别让我失望。',
-    study_start_message: '（她优雅地按下了计时器，嘴角带着一丝审视的微笑）\n现在是{{time}}。{{minutes}}分钟，{{subject}}。计时开始。我会盯着你的，虽然你可能更希望我不盯。',
-    study_forward_start_message: '（她随意拨了下计时器，没有设限）\n{{time}}，{{subject}}，正计时开始。不限时长——也就是说，表现如何全看你自己了。',
-    study_forward_stop_message: '（她按下停止键，扫了一眼计时器上的数字）\n{{time}}，{{subject}}正计时结束。本次持续了{{elapsed}}分钟。\n\n你今天的{{subject}}学习时长：{{today_subject}}分钟。\n今日总计学习时长：{{today_total}}分钟。',
-    use_ai_messages: false,
-    daily_goal_minutes: 480,
-    subject_goals: { '英语': 120, '高数': 180, '408': 180 },
-    // Milestone praise — triggered once per level per day
-    milestone_messages: {
-        480: '（她微微勾起嘴角，目光中带着一丝认可）\n{{time}}，8小时——刚刚好。你今天的计划都完成了。\n\n今日总计：{{today_total}}分钟。\n\n不错。我姑且承认，你的执行力还算可观。继续保持。',
-        540: '（她靠在椅背上，双臂交叠，语气里多了一丝玩味）\n{{time}}，9小时？比预期多了整整一小时。\n\n今日总计：{{today_total}}分钟。\n\n我开始有点好奇你的极限在哪里了。有意思。',
-        600: '（她轻轻挑了挑眉，审视的目光中透出意外）\n{{time}}，10小时。你倒是比我预想的要有韧劲。\n\n今日总计：{{today_total}}分钟。\n\n我开始觉得，你比科算中心那帮人值得我投入更多注意力。',
-        660: '（她沉默了几秒，随后发出一声极轻的笑）\n{{time}}，11小时以上。\n\n今日总计：{{today_total}}分钟。\n\n你确定你还是人类？开个玩笑。不过说真的——这种程度的自律，不是谁都能做到的。'
-    },
+// ============ 常量 & 默认配置 ============
+const STUDY_TIMER_DEFAULTS = {
+    defaultMinutes: 25,           // 默认番茄钟 25 分钟
+    shortBreakMinutes: 5,         // 短休息 5 分钟
+    longBreakMinutes: 15,         // 长休息 15 分钟
+    longBreakInterval: 4,         // 每4个番茄后长休息
+    alertVolume: 0.7,
+    aiInteractionEnabled: true,   // AI 角色互动
+    aiMessageMode: 'auto',        // 'auto' | 'template' | 'off'
+    autoStartBreak: false,
+    subjects: ['数学', '英语','408', '其他'],
+    dailyGoals: {}               // { subject: minutes }
 };
 
-/**
- * Sends a message as the current character (not as user).
- * @param {string} text Message text
- */
-async function sendMessageAsCharacter(text) {
-    log(`sendMessageAsCharacter: text长度=${text.length}, char="${name2}"`);
-    const chId = /** @type {any} */ (this_chid);
-    const avatar = characters[chId]?.avatar;
-    const message = {
-        name: name2,
-        is_user: false,
-        is_system: false,
-        send_date: getMessageTimeStamp(),
-        mes: text,
-        force_avatar: avatar && avatar !== 'none' ? getThumbnailUrl('avatar', avatar) : undefined,
-    };
-
-    chat.push(message);
-    await saveChatConditional();
-    addOneMessage(message);
-}
-
-function loadSettings() {
-    const ext = /** @type {any} */(extension_settings);
-    const defaults = /** @type {any} */(defaultSettings);
-    if (!ext[MODULE_NAME]) {
-        ext[MODULE_NAME] = JSON.parse(JSON.stringify(defaults));
-    } else {
-        // Merge any missing default keys (e.g. new fields after an update)
-        for (const key of Object.keys(defaults)) {
-            if (!(key in ext[MODULE_NAME])) {
-                ext[MODULE_NAME][key] = JSON.parse(JSON.stringify(defaults[key]));
-            }
-        }
-        // Also ensure milestone_messages keys are up to date
-        if (ext[MODULE_NAME].milestone_messages && defaults.milestone_messages) {
-            for (const key of Object.keys(defaults.milestone_messages)) {
-                if (!(key in ext[MODULE_NAME].milestone_messages)) {
-                    ext[MODULE_NAME].milestone_messages[key] = defaults.milestone_messages[key];
-                }
-            }
-        }
-    }
-}
-
-function getRemainingTime() {
-    if (!timerEndTime) return 0;
-    if (timerPaused) return pausedRemainingMs;
-    return Math.max(0, timerEndTime - Date.now());
-}
-
-/**
- * @param {number} ms
- * @returns {string}
- */
-function formatTime(ms) {
-    const totalSeconds = Math.floor(ms / 1000);
-    const hours = Math.floor(totalSeconds / 3600);
-    const minutes = Math.floor((totalSeconds % 3600) / 60);
-    const seconds = totalSeconds % 60;
-    if (hours > 0) return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-    return `${minutes}:${String(seconds).padStart(2, '0')}`;
-}
-
-function createTimerUI() {
-    log('createTimerUI 调用, panel已存在=', $('#study-timer-panel').length > 0);
-    // Only create panel if it doesn't exist (panel persists across sessions)
-    if ($('#study-timer-panel').length === 0) {
-        const toggleHtml = `
-    <div id="study-timer-toggle" title="学习计时器">
-        <span id="study-timer-toggle-icon">⏱</span>
-    </div>`;
-
-        const panelHtml = `
-    <div id="study-timer-panel" class="study-panel-hidden">
-        <div id="study-timer-panel-bar">
-            <span id="study-panel-drag-handle" title="拖拽移动面板">⋮⋮</span>
-            <span id="study-panel-stats-summary">📊 0分钟</span>
-            <span id="study-timer-affection" title="好感度" style="font-size:12px;color:#ff6b9d;cursor:pointer;min-width:50px;text-align:center;"></span>
-            <select id="study-panel-subject">
-                <option value="学习">科目</option>
-            </select>
-            <button class="study-quick-btn" data-min="5">5分</button>
-            <button class="study-quick-btn" data-min="15">15分</button>
-            <button class="study-quick-btn" data-min="25">25分</button>
-            <button class="study-quick-btn" data-min="30">30分</button>
-            <button class="study-quick-btn" data-min="45">45分</button>
-            <button class="study-quick-btn" data-min="60">60分</button>
-            <button class="study-quick-btn" id="study-btn-forward" title="正计时（不限时长）">▶ 正计时</button>
-            <button id="study-panel-stats" title="统计">📊</button>
-            <button id="study-panel-ai-toggle" title="AI 生成消息">🤖</button>
-            <button id="study-panel-ai-timer" title="让AI开始计时">🎯</button>
-            <button id="study-panel-now" title="当前时间">🕐</button>
-            <button id="study-panel-close" title="收起面板">✕</button>
-        </div>
-    </div>`;
-        $('body').append(toggleHtml + panelHtml);
-
-        // ===== Panel bar — draggable =====
-        const panel = $('#study-timer-panel');
-        const panelBar = $('#study-timer-panel-bar');
-        let panelDragData = { startX: 0, startY: 0, dragged: false, offsetX: 0, offsetY: 0 };
-
-        function startPanelDrag(e) {
-            // Don't drag if clicking on interactive elements
-            const tag = (e.target.tagName || '').toLowerCase();
-            if (tag === 'button' || tag === 'select' || tag === 'option' || tag === 'input') return;
-            const ev = e.touches ? e.touches[0] : e;
-            panelDragData.startX = ev.clientX;
-            panelDragData.startY = ev.clientY;
-            panelDragData.dragged = false;
-            const rect = panel[0].getBoundingClientRect();
-            panelDragData.offsetX = ev.clientX - rect.left;
-            panelDragData.offsetY = ev.clientY - rect.top;
-            // Detach from bottom: switch to absolute positioning
-            panel.css({
-                left: rect.left + 'px',
-                top: rect.top + 'px',
-                bottom: 'auto',
-                right: 'auto',
-                width: rect.width + 'px',
-                transform: 'none',
-                transition: 'none'
-            }).addClass('study-panel-dragging');
-
-            function onMove(me) {
-                const mv = me.touches ? me.touches[0] : me;
-                const dx = mv.clientX - panelDragData.startX;
-                const dy = mv.clientY - panelDragData.startY;
-                if (Math.abs(dx) > 3 || Math.abs(dy) > 3) panelDragData.dragged = true;
-                panel.css({
-                    left: (mv.clientX - panelDragData.offsetX) + 'px',
-                    top: (mv.clientY - panelDragData.offsetY) + 'px'
-                });
-            }
-            function onUp() {
-                $(document).off('mousemove touchmove', onMove).off('mouseup touchend', onUp);
-                // Snap to nearest edge
-                const pRect = panel[0].getBoundingClientRect();
-                const vw = window.innerWidth, vh = window.innerHeight;
-                const margin = 4;
-                const snapX = pRect.left + pRect.width / 2 < vw / 2 ? margin : vw - pRect.width - margin;
-                const snapY = Math.max(margin, Math.min(pRect.top, vh - pRect.height - margin));
-                panel.css({
-                    left: snapX + 'px',
-                    top: snapY + 'px',
-                    width: pRect.width + 'px',
-                    transition: ''
-                }).removeClass('study-panel-dragging');
-            }
-            $(document).on('mousemove touchmove', onMove).on('mouseup touchend', onUp);
-        }
-
-        panelBar.on('mousedown touchstart', function (e) {
-            const tag = (e.target.tagName || '').toLowerCase();
-            // Don't steal events from interactive children
-            if (tag === 'button' || tag === 'select' || tag === 'option' || tag === 'input') {
-                // Allow the event to reach the child normally
-                return;
-            }
-            e.preventDefault(); // Prevent text selection / scrolling on drag
-            startPanelDrag(e);
-        });
-
-        // Toggle button — draggable + click (mouse + touch)
-        const toggle = $('#study-timer-toggle');
-        let dragData = { startX: 0, startY: 0, dragged: false };
-
-        function startDrag(e) {
-            const ev = e.touches ? e.touches[0] : e;
-            dragData.startX = ev.clientX;
-            dragData.startY = ev.clientY;
-            dragData.dragged = false;
-            const rect = toggle[0].getBoundingClientRect();
-            const offsetX = ev.clientX - rect.left;
-            const offsetY = ev.clientY - rect.top;
-            toggle.css({ left: rect.left + 'px', bottom: 'auto', top: rect.top + 'px', transform: 'none' });
-
-            function onMove(/** @type {MouseEvent|TouchEvent} */ me) {
-                const mv = me.touches ? me.touches[0] : me;
-                const dx = mv.clientX - dragData.startX;
-                const dy = mv.clientY - dragData.startY;
-                if (Math.abs(dx) > 3 || Math.abs(dy) > 3) dragData.dragged = true;
-                toggle.css({ left: (mv.clientX - offsetX) + 'px', top: (mv.clientY - offsetY) + 'px' });
-            }
-            function onUp() {
-                $(document).off('mousemove touchmove', onMove).off('mouseup touchend', onUp);
-                const tRect = toggle[0].getBoundingClientRect();
-                const vw = window.innerWidth, vh = window.innerHeight;
-                const margin = 8;
-                const snapX = tRect.left + tRect.width / 2 < vw / 2 ? margin : vw - tRect.width - margin;
-                const snapY = Math.max(margin, Math.min(tRect.top, vh - tRect.height - margin));
-                toggle.css({ left: snapX + 'px', top: snapY + 'px', bottom: 'auto' });
-            }
-            $(document).on('mousemove touchmove', onMove).on('mouseup touchend', onUp);
-        }
-
-        toggle.on('mousedown touchstart', function (e) {
-            if (dragData.dragged) { log('toggle mousedown 忽略 (dragged残留)'); dragData.dragged = false; return; }
-            log('toggle mousedown/touchstart, 事件类型=', e.type);
-            startDrag(e);
-        });
-/** Reset panel to default bottom position */
-function resetPanelPosition() {
-    const panel = $('#study-timer-panel');
-    panel.css({ left: '', top: '', bottom: '', right: '', width: '', transform: '', transition: '' })
-        .removeClass('study-panel-dragging');
-}
-
-// ... (inside createTimerUI, after panel variable declaration)
-
-        toggle.on('click', function () {
-            log('toggle click, dragged=', dragData.dragged, 'closeGuard=', closeGuard);
-            if (dragData.dragged) { dragData.dragged = false; return; }
-            if (closeGuard) { log('toggle click 被 closeGuard 阻止'); return; }
-            const panel = $('#study-timer-panel');
-            if (panel.hasClass('study-panel-hidden')) {
-                log('toggle click → 打开面板');
-                resetPanelPosition(); // Always reset to bottom when opening via toggle
-                panel.removeClass('study-panel-hidden').addClass('study-panel-visible');
-                toggle.addClass('study-toggle-active');
-            } else {
-                log('toggle click → 收起面板');
-                resetPanelPosition(); // Reset position before hiding
-                panel.addClass('study-panel-hidden').removeClass('study-panel-visible');
-                toggle.removeClass('study-toggle-active');
-            }
-        });
-
-        // Close button in panel — only listen for 'click' (modern browsers
-        // synthesize click from touch, so 'touchend' is redundant and causes
-        // double-fire: touchend hides panel, then the delayed click lands on
-        // the toggle button and re-opens it, appearing as "no response").
-        let closeGuard = false;
-        // Close button: use pointerdown for reliable mobile+desktop
-        $('#study-panel-close').on('click', function (e) {
-            log('★ 关闭按钮 click, 事件类型=', e.type, 'target=', e.target.tagName, 'closeGuard=', closeGuard);
-            e.preventDefault();
-            e.stopPropagation();
-            e.stopImmediatePropagation();
-            closeGuard = true;
-            setTimeout(() => { log('closeGuard 超时解除'); closeGuard = false; }, 350);
-            const panel = $('#study-timer-panel');
-            log('关闭前 panel class=', panel.attr('class'), 'toggle class=', $('#study-timer-toggle').attr('class'));
-            resetPanelPosition();
-            panel.addClass('study-panel-hidden').removeClass('study-panel-visible');
-            $('#study-timer-toggle').removeClass('study-toggle-active');
-            log('关闭后 panel class=', panel.attr('class'), 'toggle class=', $('#study-timer-toggle').attr('class'));
-        });
-
-        // Populate subject dropdown from subject_goals
-        function populateSubjectOptions() {
-            const ext = /** @type {any} */(extension_settings)[MODULE_NAME];
-            const goals = ext.subject_goals || {};
-            const $sel = $('#study-panel-subject');
-            const current = /** @type {string} */($sel.val());
-            $sel.find('option:not(:first)').remove();
-            for (const subj of Object.keys(goals)) {
-                $sel.append(`<option value="${subj}">${subj}</option>`);
-            }
-            if (current && Object.keys(goals).includes(current)) $sel.val(current);
-        }
-        populateSubjectOptions();
-
-        // Panel quick-start buttons (countdown mode)
-        $('.study-quick-btn').not('#study-btn-forward').on('click', function () {
-            const minutes = parseInt($(this).data('min'));
-            const subject = String($('#study-panel-subject').val()).trim() || '学习';
-            startTimer(minutes, subject);
-        });
-
-        // Forward timer button (count-up mode)
-        $('#study-btn-forward').on('click', function () {
-            const subject = String($('#study-panel-subject').val()).trim() || '学习';
-            startForwardTimer(subject);
-        });
-
-        // Click affection display to open the affection panel
-        $(document).on('click', '#study-timer-affection', function () {
-            const w = /** @type {any} */(window);
-            if (typeof w.toggleAffectionPanel === 'function') {
-                w.toggleAffectionPanel();
-            }
-        });
-
-        // Stats button — also ensure it works on mobile
-        $('#study-panel-stats').on('click', function(e) {
-            log('📊 统计按钮 click');
-            e.preventDefault();
-            e.stopPropagation();
-            toggleStatsPopup();
-        });
-        $('#study-panel-now').on('click', () => {
-            const d = new Date();
-            const time = `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-            const total = getTodayTotalMinutes();
-            /** @type {any} */(toastr).info(`🕐 ${time} | 今日已学 ${total} 分钟`, getTimeBasedMessage() + '好');
-        });
-
-        // AI toggle button
-        $('#study-panel-ai-toggle').on('click', function () {
-            const ext = /** @type {any} */(extension_settings)[MODULE_NAME];
-            ext.use_ai_messages = !ext.use_ai_messages;
-            $(this).toggleClass('active-ai', ext.use_ai_messages);
-            /** @type {any} */(toastr).info(ext.use_ai_messages ? '🤖 AI 生成消息已开启' : '📝 固定消息模式');
-        });
-        // Restore AI toggle state
-        const aiEnabled = /** @type {any} */(extension_settings)[MODULE_NAME].use_ai_messages;
-        $('#study-panel-ai-toggle').toggleClass('active-ai', aiEnabled);
-
-        // 🎯 AI timer button — asks AI to start a timer via quiet prompt
-        $('#study-panel-ai-timer').on('click', async function () {
-            const subject = String($('#study-panel-subject').val()).trim() || '学习';
-            const input = prompt(`让AI开始「${subject}」计时，设置多少分钟？`, '30');
-            if (input === null) return;
-            const minutes = parseInt(input, 10);
-            if (isNaN(minutes) || minutes < 1 || minutes > 480) {
-                /** @type {any} */(toastr).warning('请输入1-480之间的分钟数');
-                return;
-            }
-            try {
-                const chatCtx = getRecentChatContext(3);
-                const text = await generateQuietPrompt({
-                    quietPrompt: `[系统提示 · 当前时间：${getCurrentTimeString()}]
-${name2} 即将开始一个 ${minutes} 分钟的「${subject}」学习计时。
-
-近期对话上下文：
-${chatCtx}
-
-请基于以上对话上下文，以角色自然口吻宣布这一计时开始（1-2句话即可），维持角色既有人设和对话的连贯性。在回复末尾加上 [timer:${subject}:${minutes}]。]`,
-                    quietToLoud: false,
-                    quietName: 'System',
-                });
-                if (text && text.trim()) {
-                    await sendMessageAsCharacter(text.trim());
-                }
-            } catch (e) {
-                console.error('[StudyTimer] AI timer request failed', e);
-                /** @type {any} */(toastr).error('AI 请求失败，请重试');
-            }
-        });
-
-        updatePanelSummary();
-        /** @type {any} */(window)._studyPanelInterval = setInterval(updatePanelSummary, 30000);
-    }
-
-    // Overlay and popup are recreated each time
-    $('#study-timer-overlay,#study-stats-popup').remove();
-
-    const overlayHtml = `
-    <div id="study-timer-overlay" class="study-timer-hidden">
-        <div id="study-timer-box">
-            <div id="study-timer-subject"></div>
-            <div id="study-timer-display">00:00</div>
-            <div id="study-timer-progress"><div id="study-timer-bar"></div></div>
-            <div id="study-timer-buttons">
-                <button id="study-timer-pause" title="暂停/恢复">⏯</button>
-                <button id="study-timer-stop" title="停止">⏹</button>
-                <button id="study-timer-add5" title="+5分钟">+5</button>
-            </div>
-        </div>
-    </div>`;
-
-    const statsHtml = `
-    <div id="study-stats-popup" class="study-popup-hidden">
-        <div id="study-stats-content"></div>
-    </div>`;
-
-    $('body').append(overlayHtml + statsHtml);
-
-    // Timer controls
-    $('#study-timer-stop').on('click', () => stopTimer());
-    $('#study-timer-pause').on('click', togglePause);
-    $('#study-timer-add5').on('click', () => {
-        if (timerRunning && !timerPaused) {
-            timerEndTime = timerEndTime ? timerEndTime + 5 * 60000 : Date.now() + 5 * 60000;
-            timerMinutes += 5;
-            updateTimerUI();
-        }
-    });
-}
-
-function toggleStatsPopup() {
-    const popup = $('#study-stats-popup');
-    log('toggleStatsPopup: popup存在=', popup.length > 0, '当前visible=', popup.hasClass('study-popup-visible'));
-    if (popup.hasClass('study-popup-visible')) {
-        popup.removeClass('study-popup-visible').addClass('study-popup-hidden');
-    } else {
-        const content = $('#study-stats-content');
-        if (content.length === 0) {
-            logWarn('toggleStatsPopup: #study-stats-content 不存在!');
-            return;
-        }
-        content.html(formatStatsMessage().replace(/\n/g, '<br>'));
-        popup.removeClass('study-popup-hidden').addClass('study-popup-visible');
-        // Tap outside to close (mobile-friendly)
-        setTimeout(() => {
-            $(document).one('click touchstart', function docClick(e) {
-                const $t = $(e.target);
-                if (!$t.closest('#study-stats-popup').length && !$t.closest('#study-panel-stats').length) {
-                    popup.removeClass('study-popup-visible').addClass('study-popup-hidden');
-                } else {
-                    // Re-bind if click was inside
-                    $(document).one('click touchstart', docClick);
-                }
-            });
-        }, 100);
-        // Auto-hide after 15s
-        clearTimeout(/** @type {any} */(window)._statsTimeout);
-        /** @type {any} */(window)._statsTimeout = setTimeout(() => {
-            popup.removeClass('study-popup-visible').addClass('study-popup-hidden');
-        }, 15000);
-    }
-}
-
-function updatePanelSummary() {
-    const total = getTodayTotalMinutes();
-    const goal = /** @type {Record<string, any>} */(extension_settings)[MODULE_NAME].daily_goal_minutes || 480;
-    const ext = /** @type {any} */(extension_settings)[MODULE_NAME];
-    const subjectGoals = /** @type {Record<string, number>} */(ext.subject_goals) || {};
-    const pct = goal > 0 ? Math.min(Math.round((total / goal) * 100), 100) : 0;
-    const emoji = pct >= 100 ? '✅' : pct >= 50 ? '📚' : pct > 0 ? '📖' : '📊';
-
-    // Build per-subject status string
-    let subjStatus = '';
-    for (const [subj, subjGoal] of Object.entries(subjectGoals)) {
-        const done = getTodaySubjectMinutes(subj);
-        const doneEmoji = done >= subjGoal ? '✅' : '📝';
-        subjStatus += `${doneEmoji}${subj}${done}/${subjGoal} `;
-    }
-
-    $('#study-panel-stats-summary').text(`${emoji} ${total}/${goal}分 (${pct}%)`);
-    // Show per-subject progress below the panel
-    let $subjLine = $('#study-subject-goals');
-    if (!$subjLine.length) {
-        $subjLine = $(`<div id="study-subject-goals" style="font-size:11px;padding:2px 12px;color:var(--text_col);white-space:nowrap;text-align:center;background:rgba(0,0,0,0.3);border-top:1px solid #3a2a50;"></div>`);
-        $('#study-timer-panel').append($subjLine);
-    }
-    $subjLine.text(subjStatus.trim());
-
-    // Update affection display from the affection extension
-    updateAffectionDisplay();
-}
-
-/**
- * Reads affection data from localStorage and updates the panel display.
- */
-function updateAffectionDisplay() {
-    const $el = $('#study-timer-affection');
-    if (!$el.length) return;
-    try {
-        const raw = localStorage.getItem('affection_data');
-        let score = 0;
-        if (raw) {
-            const all = JSON.parse(raw);
-            const chId = /** @type {any} */ (this_chid);
-            const charName = characters[chId]?.name;
-            if (charName && all[charName]) {
-                score = all[charName].score ?? 0;
-            }
-        }
-        const level = getAffectionLevel(score);
-        const diffKeys = ['easy', 'medium', 'hard'];
-        const diffLabels = ['E', 'M', 'H'];
-        const savedDiff = /** @type {any} */ (extension_settings)['affection']?.difficulty || 'medium';
-        const autoEval = /** @type {any} */ (extension_settings)['affection']?.autoEval;
-        const diffIdx = diffKeys.indexOf(savedDiff);
-        const diffLabel = diffIdx >= 0 ? diffLabels[diffIdx] : 'M';
-        $el.text(`${level.emoji} ${score} ${diffLabel}${autoEval ? '' : '💤'}`);
-        $el.css('color', score >= 60 ? '#ff6b9d' : score >= 20 ? '#c8b0e0' : '#8a6a9a');
-    } catch { $el.text(''); }
-}
-
-/** @param {number} score */
-function getAffectionLevel(score) {
-    if (score >= 100) return { emoji: '❤️', label: '挚爱' };
-    if (score >= 80) return { emoji: '💕', label: '亲密' };
-    if (score >= 60) return { emoji: '😄', label: '友好' };
-    if (score >= 40) return { emoji: '😊', label: '熟悉' };
-    if (score >= 20) return { emoji: '👋', label: '初识' };
-    if (score >= 0) return { emoji: '🤝', label: '陌生' };
-    return { emoji: '💔', label: '冷漠' };
-}
-
-/**
- * Gets the last N messages from chat as context string for AI continuity.
- * @param {number} count
- * @returns {string}
- */
-function getRecentChatContext(count = 4) {
-    if (!chat || chat.length === 0) return '（暂无对话记录）';
-    const recent = chat.slice(-count);
-    const lines = recent.map((m, i) => {
-        const role = m.is_user ? '用户' : (m.name || name2 || '角色');
-        const text = String(m.mes || '').substring(0, 300);
-        return `[${role}]: ${text}`;
-    });
-    return lines.join('\n');
-}
-
-/**
- * Generates an AI response for timer events and sends it as character message.
- * Uses system-note framing + recent chat context to maintain conversation continuity.
- * @param {'start'|'complete'|'milestone'|'forward_start'|'forward_stop'} event
- * @param {{subject?:string, minutes?:number, time?:string, todaySubject?:number, todayTotal?:number}} data
- */
-async function sendAIMessage(event, data) {
-    const now = getCurrentTimeString();
-    const date = getCurrentDateString();
-    const chatContext = getRecentChatContext(4);
-
-    const prompts = {
-        start: `[系统提示 · 当前时间：${now}，${date}]
-${name2} 注意到一个 ${data.minutes} 分钟的「${data.subject}」学习计时刚刚启动。
-
-近期对话上下文：
-${chatContext}
-
-请基于以上对话上下文，以 ${name2} 的角色身份自然简短回应（1-2句话即可）。维持角色既有人设和对话的连贯性，不要切换人格或话题。]`,
-        complete: `[系统提示 · 当前时间：${now}，${date}]
-${name2} 注意到 ${data.minutes} 分钟的「${data.subject}」学习计时已结束。今日「${data.subject}」累计 ${data.todaySubject} 分钟，今日总计 ${data.todayTotal} 分钟。
-
-近期对话上下文：
-${chatContext}
-
-请基于以上对话上下文，以 ${name2} 的角色身份自然简短评论（1-2句话即可）。维持角色既有人设和对话的连贯性，不要切换人格或话题。不要用星号描述动作。]`,
-        milestone: `[系统提示 · 当前时间：${now}，${date}]
-${name2} 注意到今日累计学习时长已突破 ${data.todayTotal} 分钟——一个值得注意的每日里程碑。
-
-近期对话上下文：
-${chatContext}
-
-请基于以上对话上下文，以 ${name2} 的角色身份自然简短回应（1-2句话即可），认可这一进展。维持角色既有人设和对话的连贯性，不要切换人格或话题。不要用星号描述动作。]`,
-        forward_start: `[系统提示 · 当前时间：${now}，${date}]
-你正在监督的人刚刚对「${data.subject}」启动了正向计时——不限时长，没有预设结束时间，能坚持多久全看她自己。
-
-近期对话上下文：
-${chatContext}
-
-现在，以你当前的角色口吻，对此做出简短回应（1-2句话）。可以催促她赶紧开始、质疑她能否坚持、或表达你的监督态度——总之用你角色特有的方式回应这件事。不要用星号描述动作，直接说话。]`,
-        forward_stop: `[系统提示 · 当前时间：${now}，${date}]
-你正在监督的人手动停止了「${data.subject}」的正向计时。本次持续了 ${data.minutes} 分钟。今日「${data.subject}」累计 ${data.todaySubject} 分钟，今日总计 ${data.todayTotal} 分钟。
-
-近期对话上下文：
-${chatContext}
-
-现在，以你当前的角色口吻，对这次计时结果做出简短评价（1-2句话）。你可以点评时长是否够格、对比日常目标、表达满意或不屑——用你角色特有的态度来评判。不要用星号描述动作，直接说话。]`,
-    };
-    const prompt = prompts[event];
-    if (!prompt) return;
-    try {
-        const text = await generateQuietPrompt({ quietPrompt: prompt, quietToLoud: false, quietName: 'System' });
-        if (text && text.trim()) {
-            await sendMessageAsCharacter(text.trim());
-        }
-    } catch (e) {
-        console.error('[StudyTimer] AI generation failed, falling back to fixed message', e);
-    }
-}
-
-/**
- * Start a forward (count-up) timer with no preset end time.
- * @param {string} subject
- */
-function startForwardTimer(subject) {
-    log(`▶ startForwardTimer: subject="${subject}"`);
-    stopTimer(true);
-
-    timerForward = true;
-    timerMinutes = 0;
-    timerSubject = subject;
-    timerPaused = false;
-    timerRunning = true;
-    timerStartedAt = Date.now();
-    timerEndTime = null;
-
-    createTimerUI();
-    showTimerUI();
-
-    $('#study-timer-progress').hide();
-    $('#study-timer-add5').hide();
-
-    const now = getCurrentTimeString();
-    const ext = /** @type {any} */(extension_settings)[MODULE_NAME];
-    if (ext.use_ai_messages) {
-        sendAIMessage('forward_start', { subject, time: now });
-    } else {
-        const msg = ext.study_forward_start_message
-            .replace(/\{\{subject\}\}/g, subject)
-            .replace(/\{\{time\}\}/g, now);
-        sendMessageAsCharacter(msg);
-    }
-
-    timerInterval = setInterval(() => {
-        updateTimerUI();
-    }, 500);
-}
-
-function showTimerUI() {
-    $('#study-timer-overlay').removeClass('study-timer-hidden').addClass('study-timer-visible');
-    updateTimerUI();
-}
-
-function hideTimerUI() {
-    log('hideTimerUI');
-    $('#study-timer-overlay').removeClass('study-timer-visible').addClass('study-timer-hidden');
-    // Small delay before removing
-    setTimeout(() => {
-        if (!timerRunning && timerInterval === null) {
-            $('#study-timer-overlay').remove();
-        }
-    }, 500);
-}
-
-function updateTimerUI() {
-    // ---- Forward (count-up) mode ----
-    if (timerForward) {
-        const now = Date.now();
-        const elapsed = timerPaused ? pausedRemainingMs : (now - (timerStartedAt || now));
-        $('#study-timer-display').text(formatTime(elapsed));
-        $('#study-timer-progress').hide();
-        $('#study-timer-add5').hide();
-        $('#study-timer-bar').css('width', '0%');
-        if (timerPaused) {
-            $('#study-timer-subject').text(`⏸ 已暂停 · ${timerSubject}`);
-            $('#study-timer-pause').text('▶');
-        } else {
-            $('#study-timer-subject').text(`▶ 正计时 · ${timerSubject}`);
-            $('#study-timer-pause').text('⏸');
-        }
-        $('#study-timer-box').removeClass('study-timer-warning');
-        return;
-    }
-
-    // ---- Countdown mode (original) ----
-    const remaining = getRemainingTime();
-    const totalMs = timerMinutes * 60 * 1000;
-
-    if (timerPaused) {
-        // Use the saved paused remaining for progress calculation
-        const elapsed = totalMs - pausedRemainingMs;
-        const progress = totalMs > 0 ? (elapsed / totalMs) * 100 : 0;
-        $('#study-timer-display').text(formatTime(pausedRemainingMs));
-        $('#study-timer-bar').css('width', `${100 - progress}%`);
-        $('#study-timer-subject').text(`⏸ 已暂停 · ${timerSubject}`);
-        $('#study-timer-pause').text('▶');
-    } else {
-        const elapsed = totalMs - remaining;
-        const progress = totalMs > 0 ? (elapsed / totalMs) * 100 : 0;
-        $('#study-timer-display').text(formatTime(remaining));
-        $('#study-timer-bar').css('width', `${100 - progress}%`);
-        $('#study-timer-subject').text(`📚 ${timerSubject}`);
-        $('#study-timer-pause').text('⏸');
-    }
-
-    // Color change when < 1 minute
-    if (remaining < 60000 && remaining > 0 && !timerPaused) {
-        $('#study-timer-box').addClass('study-timer-warning');
-    } else {
-        $('#study-timer-box').removeClass('study-timer-warning');
-    }
-}
-
-/**
- * @param {number} minutes
- * @param {string} subject
- */
-function startTimer(minutes, subject) {
-    log(`▶ startTimer: subject="${subject}", minutes=${minutes}`);
-    stopTimer(true);
-
-    timerMinutes = minutes;
-    timerSubject = subject;
-    timerPaused = false;
-    timerRunning = true;
-    timerStartedAt = Date.now();
-    timerEndTime = Date.now() + minutes * 60 * 1000;
-
-    createTimerUI();
-    showTimerUI();
-
-    const now = getCurrentTimeString();
-    const ext = /** @type {any} */(extension_settings)[MODULE_NAME];
-    if (ext.use_ai_messages) {
-        sendAIMessage('start', { subject, minutes, time: now });
-    } else {
-        const msg = ext.study_start_message
-            .replace(/\{\{minutes\}\}/g, String(minutes))
-            .replace(/\{\{subject\}\}/g, subject)
-            .replace(/\{\{time\}\}/g, now);
-        sendMessageAsCharacter(msg);
-    }
-
-    timerInterval = setInterval(() => {
-        const remaining = getRemainingTime();
-        updateTimerUI();
-        if (remaining <= 0 && !timerPaused) {
-            completeTimer();
-        }
-    }, 500);
-}
-
-function togglePause() {
-    if (!timerRunning) { log('togglePause: timer未运行，忽略'); return; }
-    log(`togglePause: 当前paused=${timerPaused}, forward=${timerForward}`);
-
-    if (timerPaused) {
-        // Resume
-        timerPaused = false;
-        if (timerForward) {
-            // Back-date start time to maintain correct elapsed
-            timerStartedAt = Date.now() - pausedRemainingMs;
-            timerEndTime = null;
-        } else {
-            timerEndTime = Date.now() + pausedRemainingMs;
-        }
-        pausedRemainingMs = 0;
-        updateTimerUI();
-    } else {
-        // Pause
-        timerPaused = true;
-        if (timerForward) {
-            pausedRemainingMs = Date.now() - (timerStartedAt || Date.now());
-        } else {
-            pausedRemainingMs = getRemainingTime();
-        }
-        timerEndTime = null;
-        updateTimerUI();
-    }
-}
-
-function completeTimer() {
-    log(`✅ completeTimer: subject="${timerSubject}", minutes=${timerMinutes}`);
-    const completedMinutes = timerMinutes;
-    const completedSubject = timerSubject;
-
-    timerRunning = false;
-    clearInterval(/** @type {ReturnType<typeof setInterval>} */(timerInterval));
-    timerInterval = null;
-
-    // Record to daily stats
-    recordSession(completedSubject, completedMinutes);
-
-    // Get stats for the message
-    const todaySubjectMinutes = getTodaySubjectMinutes(completedSubject);
-    const todayTotalMinutes = getTodayTotalMinutes();
-    const now = getCurrentTimeString();
-
-    const ext = /** @type {any} */(extension_settings)[MODULE_NAME];
-    if (ext.use_ai_messages) {
-        sendAIMessage('complete', {
-            subject: completedSubject,
-            minutes: completedMinutes,
-            time: now,
-            todaySubject: todaySubjectMinutes,
-            todayTotal: todayTotalMinutes,
-        });
-    } else {
-        const msg = ext.study_complete_message
-            .replace(/\{\{minutes\}\}/g, String(completedMinutes))
-            .replace(/\{\{subject\}\}/g, completedSubject)
-            .replace(/\{\{time\}\}/g, now)
-            .replace(/\{\{today_subject\}\}/g, String(todaySubjectMinutes))
-            .replace(/\{\{today_total\}\}/g, String(todayTotalMinutes));
-        sendMessageAsCharacter(msg);
-    }
-
-    // Check and trigger milestone praise
-    checkMilestones(todayTotalMinutes);
-
-    // Flash the timer box
-    $('#study-timer-box').addClass('study-timer-complete');
-    setTimeout(() => {
-        hideTimerUI();
-    }, 5000);
-}
-
-function stopTimer(silent = false) {
-    log(`⏹ stopTimer: silent=${silent}, wasForward=${timerForward}, subject="${timerSubject}", running=${timerRunning}`);
-    const wasForward = timerForward;
-    const stoppedSubject = timerSubject;
-    let recordedMinutes = 0;
-
-    // If timer was running, record partial time
-    if (timerRunning && !silent && timerStartedAt && timerSubject) {
-        let elapsedMs;
-        if (timerForward) {
-            elapsedMs = timerPaused ? pausedRemainingMs : (Date.now() - timerStartedAt);
-        } else {
-            elapsedMs = Date.now() - timerStartedAt;
-        }
-        recordedMinutes = Math.round(elapsedMs / 60000);
-        if (recordedMinutes >= 1) {
-            recordSession(timerSubject, recordedMinutes);
-        }
-    }
-    timerRunning = false;
-    timerPaused = false;
-    timerForward = false;
-    clearInterval(/** @type {ReturnType<typeof setInterval>} */(timerInterval));
-    timerInterval = null;
-    timerEndTime = null;
-    timerSubject = '';
-    timerMinutes = 0;
-    pausedRemainingMs = 0;
-    timerStartedAt = null;
-    hideTimerUI();
-
-    // Send stop message for forward mode (non-silent stop)
-    if (wasForward && !silent && recordedMinutes >= 1) {
-        const now = getCurrentTimeString();
-        const todaySubject = getTodaySubjectMinutes(stoppedSubject);
-        const todayTotal = getTodayTotalMinutes();
-        const ext = /** @type {any} */(extension_settings)[MODULE_NAME];
-        if (ext.use_ai_messages) {
-            sendAIMessage('forward_stop', {
-                subject: stoppedSubject,
-                minutes: recordedMinutes,
-                time: now,
-                todaySubject: todaySubject,
-                todayTotal: todayTotal,
-            });
-        } else {
-            const msg = ext.study_forward_stop_message
-                .replace(/\{\{subject\}\}/g, stoppedSubject)
-                .replace(/\{\{elapsed\}\}/g, String(recordedMinutes))
-                .replace(/\{\{time\}\}/g, now)
-                .replace(/\{\{today_subject\}\}/g, String(todaySubject))
-                .replace(/\{\{today_total\}\}/g, String(todayTotal));
-            sendMessageAsCharacter(msg);
-        }
-        // Check milestones after forward stop too
-        checkMilestones(todayTotal);
-    }
-}
-
-function timerStatus() {
-    if (!timerRunning) {
-        return '当前没有运行中的计时器。使用 /study 科目 分钟 开始倒计时，/study-forward 科目 开始正计时。';
-    }
-    if (timerForward) {
-        const elapsed = timerPaused ? pausedRemainingMs : (Date.now() - (timerStartedAt || Date.now()));
-        if (timerPaused) {
-            return `⏸ 正计时已暂停。科目：${timerSubject}，已过：${formatTime(elapsed)}`;
-        }
-        return `▶ 正计时中：${timerSubject}，已过：${formatTime(elapsed)}`;
-    }
-    const remaining = getRemainingTime();
-    if (timerPaused) {
-        return `⏸ 计时器已暂停。科目：${timerSubject}，剩余：${formatTime(remaining)}`;
-    }
-    return `📚 正在计时：${timerSubject}，剩余：${formatTime(remaining)}`;
-}
-
-// ==================== Stats System ====================
-
+// ============ 全局状态 ============
+const StudyTimer = {
+    // 计时状态
+    timerType: null,        // 'countdown' | 'stopwatch' | 'break' | null
+    running: false,
+    paused: false,
+    remainingSeconds: 0,
+    elapsedSeconds: 0,
+    totalDuration: 0,       // 倒计时总时长(秒)
+    currentSubject: '其他',
+    
+    // 番茄计数
+    pomodoroCount: 0,
+    sessionPomodoros: 0,
+    
+    // 统计 (按日期存储)
+    dailyRecords: {},       // { 'YYYY-MM-DD': { subject: totalSeconds } }
+    
+    // 里程碑提示（避免重复）
+    milestonesTriggered: {},
+    
+    // 通知
+    audioCtx: null,
+    
+    // UI 引用
+    panelVisible: false,
+    settingsVisible: false,
+    statsVisible: false,
+    
+    // interval ID
+    tickInterval: null,
+    
+    // 设置
+    settings: { ...STUDY_TIMER_DEFAULTS },
+    
+    // 初始化标记
+    initialized: false
+};
+
+// ============ 工具函数 ============
+
+/** 获取今天的日期键 YYYY-MM-DD */
 function getTodayKey() {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-function getCurrentTimeString() {
-    const d = new Date();
-    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+/** 获取本周的日期范围 */
+function getWeekKeys() {
+    const keys = [];
+    const today = new Date();
+    const dayOfWeek = today.getDay();
+    const monday = new Date(today);
+    monday.setDate(today.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
+    for (let i = 0; i < 7; i++) {
+        const d = new Date(monday);
+        d.setDate(monday.getDate() + i);
+        keys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
+    }
+    return keys;
 }
 
-function getCurrentDateString() {
-    const d = new Date();
-    const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
-    return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${weekdays[d.getDay()]}`;
+/** 格式化时间 mm:ss */
+function formatTime(totalSeconds) {
+    const m = Math.floor(totalSeconds / 60);
+    const s = totalSeconds % 60;
+    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
-function getTimeBasedMessage() {
-    const hour = new Date().getHours();
-    if (hour < 6) return '深夜';
-    if (hour < 9) return '早晨';
-    if (hour < 12) return '上午';
-    if (hour < 14) return '中午';
-    if (hour < 18) return '下午';
-    if (hour < 21) return '傍晚';
-    return '晚上';
+/** 格式化小时 */
+function formatHours(totalSeconds) {
+    return (totalSeconds / 3600).toFixed(1);
 }
 
-function loadStats() {
+/** 安全地从 localStorage 读取 */
+function lsGet(key, fallback = null) {
     try {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        return raw ? JSON.parse(raw) : { records: {} };
-    } catch { return { records: {} }; }
+        const v = localStorage.getItem(`study_timer_${key}`);
+        return v ? JSON.parse(v) : fallback;
+    } catch { return fallback; }
 }
 
-/**
- * @param {{records: Record<string, Record<string, number>>}} stats
- */
-function saveStats(stats) {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(stats)); } catch { /* ignore */ }
-}
-
-const MILESTONE_KEY = 'study_timer_milestones';
-
-/**
- * @returns {Record<string, number[]>}
- */
-function loadMilestones() {
+/** 安全地写入 localStorage */
+function lsSet(key, value) {
     try {
-        const raw = localStorage.getItem(MILESTONE_KEY);
-        return raw ? JSON.parse(raw) : {};
-    } catch { return {}; }
+        localStorage.setItem(`study_timer_${key}`, JSON.stringify(value));
+    } catch { /* ignore quota */ }
 }
 
-/**
- * @param {Record<string, number[]>} milestones
- */
-function saveMilestones(milestones) {
-    try { localStorage.setItem(MILESTONE_KEY, JSON.stringify(milestones)); } catch { /* ignore */ }
+// ============ 持久化 ============
+
+function saveSettings() {
+    lsSet('settings', StudyTimer.settings);
 }
 
-/**
- * Check and trigger milestone praise if a new level is reached.
- * @param {number} todayTotal
- */
-async function checkMilestones(todayTotal) {
-    const milestones = loadMilestones();
-    const today = getTodayKey();
-    const triggered = milestones[today] ?? [];
-    const levels = Object.keys(/** @type {Record<string, any>} */(extension_settings)[MODULE_NAME].milestone_messages || {})
-        .map(Number)
-        .sort((a, b) => a - b);
+function loadSettings() {
+    const saved = lsGet('settings');
+    if (saved && typeof saved === 'object') {
+        StudyTimer.settings = { ...STUDY_TIMER_DEFAULTS, ...saved };
+    }
+    // 确保 subjects 是数组
+    if (!Array.isArray(StudyTimer.settings.subjects)) {
+        StudyTimer.settings.subjects = [...STUDY_TIMER_DEFAULTS.subjects];
+    }
+}
 
-    // Find the highest reachable milestone that hasn't been triggered yet
-    const toTrigger = levels.filter(l => l <= todayTotal && !triggered.includes(l));
+function saveDailyRecords() {
+    lsSet('dailyRecords', StudyTimer.dailyRecords);
+}
 
-    for (const level of toTrigger) {
-        triggered.push(level);
-        const ext = /** @type {any} */(extension_settings)[MODULE_NAME];
-        if (ext.use_ai_messages) {
-            await sendAIMessage('milestone', { todayTotal, time: getCurrentTimeString() });
-        } else {
-            const msg = ext.milestone_messages[String(level)]
-                .replace(/\{\{time\}\}/g, getCurrentTimeString())
-                .replace(/\{\{today_total\}\}/g, String(todayTotal));
-            await sendMessageAsCharacter(msg);
+function loadDailyRecords() {
+    const saved = lsGet('dailyRecords');
+    if (saved && typeof saved === 'object') {
+        StudyTimer.dailyRecords = saved;
+    }
+}
+
+function saveTimerState() {
+    lsSet('timerState', {
+        timerType: StudyTimer.timerType,
+        running: StudyTimer.running,
+        paused: StudyTimer.paused,
+        remainingSeconds: StudyTimer.remainingSeconds,
+        elapsedSeconds: StudyTimer.elapsedSeconds,
+        totalDuration: StudyTimer.totalDuration,
+        currentSubject: StudyTimer.currentSubject,
+        pomodoroCount: StudyTimer.pomodoroCount,
+        sessionPomodoros: StudyTimer.sessionPomodoros,
+        lastSaveTime: Date.now()
+    });
+}
+
+function loadTimerState() {
+    const saved = lsGet('timerState');
+    if (!saved) return;
+    
+    // 如果之前是运行状态，根据时间差恢复
+    if (saved.running && !saved.paused) {
+        const elapsedReal = Math.floor((Date.now() - (saved.lastSaveTime || Date.now())) / 1000);
+        if (saved.timerType === 'countdown' || saved.timerType === 'break') {
+            saved.remainingSeconds = Math.max(0, saved.remainingSeconds - elapsedReal);
+            if (saved.remainingSeconds <= 0) {
+                // 计时器已过期，不恢复运行状态
+                StudyTimer.timerType = saved.timerType;
+                StudyTimer.remainingSeconds = 0;
+                StudyTimer.totalDuration = saved.totalDuration;
+                StudyTimer.currentSubject = saved.currentSubject;
+                StudyTimer.pomodoroCount = saved.pomodoroCount;
+                StudyTimer.sessionPomodoros = saved.sessionPomodoros;
+                handleTimerComplete();
+                return;
+            }
+        } else if (saved.timerType === 'stopwatch') {
+            saved.elapsedSeconds += elapsedReal;
         }
     }
-
-    if (toTrigger.length > 0) {
-        milestones[today] = triggered;
-        saveMilestones(milestones);
+    
+    StudyTimer.timerType = saved.timerType;
+    StudyTimer.running = saved.running;
+    StudyTimer.paused = saved.paused;
+    StudyTimer.remainingSeconds = saved.remainingSeconds;
+    StudyTimer.elapsedSeconds = saved.elapsedSeconds;
+    StudyTimer.totalDuration = saved.totalDuration;
+    StudyTimer.currentSubject = saved.currentSubject || '其他';
+    StudyTimer.pomodoroCount = saved.pomodoroCount || 0;
+    StudyTimer.sessionPomodoros = saved.sessionPomodoros || 0;
+    
+    if (StudyTimer.running && !StudyTimer.paused) {
+        startTick();
     }
 }
 
-/**
- * @param {string} subject
- * @param {number} minutes
- */
-function recordSession(subject, minutes) {
-    const stats = loadStats();
-    const today = getTodayKey();
-    if (!stats.records[today]) stats.records[today] = {};
-    stats.records[today][subject] = (stats.records[today][subject] || 0) + minutes;
-    saveStats(stats);
+// ============ 音效 ============
+
+function playBeep(freq = 800, duration = 150, type = 'sine') {
+    try {
+        if (!StudyTimer.audioCtx) {
+            StudyTimer.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        const ctx = StudyTimer.audioCtx;
+        if (ctx.state === 'suspended') ctx.resume();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = type;
+        osc.frequency.value = freq;
+        gain.gain.value = StudyTimer.settings.alertVolume;
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration / 1000);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + duration / 1000);
+    } catch { /* 静默失败 */ }
 }
 
-/**
- * @param {string} subject
- * @returns {number}
- */
-function getTodaySubjectMinutes(subject) {
-    const stats = loadStats();
-    const today = getTodayKey();
-    return (stats.records[today] && stats.records[today][subject]) || 0;
+function playAlarm() {
+    // 简单的叮叮声
+    playBeep(880, 100);
+    setTimeout(() => playBeep(1100, 100), 120);
+    setTimeout(() => playBeep(1320, 150), 240);
 }
 
-function getTodayTotalMinutes() {
-    const stats = loadStats();
-    const today = getTodayKey();
-    if (!stats.records[today]) return 0;
-    return Object.values(stats.records[today]).reduce((a, b) => a + b, 0);
+function playStartSound() {
+    playBeep(660, 80, 'triangle');
+    setTimeout(() => playBeep(880, 120, 'triangle'), 100);
+}
+
+// ============ AI 角色互动 ============
+
+function getContext() {
+    return (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) 
+        ? SillyTavern.getContext() 
+        : null;
+}
+
+function sendSystemMessage(text) {
+    const ctx = getContext();
+    if (ctx && typeof ctx.sendSystemMessage === 'function') {
+        ctx.sendSystemMessage('generic', text);
+    } else {
+        // Fallback: 尝试通过 toast 或 console 显示
+        try {
+            if (typeof toastr !== 'undefined') toastr.info(text, '🍅 番茄钟');
+        } catch { console.log('[StudyTimer]', text); }
+    }
+}
+
+async function sendAIInteraction(scene) {
+    if (!StudyTimer.settings.aiInteractionEnabled) return;
+    if (StudyTimer.settings.aiMessageMode === 'off') return;
+    
+    const subject = StudyTimer.currentSubject;
+    const duration = StudyTimer.timerType === 'stopwatch' 
+        ? formatTime(StudyTimer.elapsedSeconds)
+        : formatTime(StudyTimer.totalDuration);
+    
+    const templates = {
+        start: [
+            `📚 开始学习 ${subject}！设定时长 ${duration}，加油！`,
+            `⏰ ${subject} 学习时间到！专注 ${duration}，开始吧~`,
+            `🎯 进入 ${subject} 学习模式，目标 ${duration}，集中注意力！`
+        ],
+        complete: [
+            `🎉 ${subject} 学习完成！坚持了 ${duration}，太棒了！`,
+            `✅ ${subject} 计时结束！${duration} 的努力不会白费~`,
+            `🏆 恭喜完成 ${subject} 的 ${duration} 学习！休息一下吧~`
+        ],
+        breakStart: [
+            `☕ 休息时间 ${duration}，放松一下~`,
+            `😌 休息 ${duration}，喝口水活动活动~`
+        ],
+        breakEnd: [
+            `⏰ 休息结束！准备开始下一个番茄吧~`,
+            `🔔 休息时间到，继续加油！`
+        ],
+        milestone: [
+            `🌟 太厉害了！今天已经学习了 {hours} 小时！你是最棒的！`,
+            `💪 {hours} 小时的学习！这个成就令人敬佩！`,
+            `🔥 {hours} 小时的专注！你的毅力让人惊叹！`
+        ]
+    };
+    
+    let message;
+    if (StudyTimer.settings.aiMessageMode === 'template') {
+        // 固定模板模式
+        const pool = templates[scene] || templates.start;
+        message = pool[Math.floor(Math.random() * pool.length)];
+        message = message.replace('{hours}', formatHours(getTodayTotalSeconds()));
+        sendSystemMessage(message);
+    } else {
+        // auto 模式：尝试触发 AI 生成消息
+        const pool = templates[scene] || templates.start;
+        message = pool[Math.floor(Math.random() * pool.length)];
+        message = message.replace('{hours}', formatHours(getTodayTotalSeconds()));
+        
+        // 如果 ST 支持，构造提示词让 AI 生成
+        const ctx = getContext();
+        if (ctx && typeof ctx.generateRaw === 'function') {
+            try {
+                const prompt = scene === 'start'
+                    ? `[系统提示：用户刚刚开始了${subject}的番茄钟学习，时长${duration}。请作为角色
+                    ，用自然的话语鼓励用户，回复要简短（1-2句话），语气温柔鼓励。不要用任何格式标记。]`
+                    : scene === 'complete'
+                        ? `[系统提示：用户完成了${subject}的${duration}学习。请作为角色回复用户，回复要简短（1-2句话），表达认可和鼓励。不要用任何格式标记。]`
+                        : scene === 'milestone'
+                            ? `[系统提示：用户今天已经学习了${formatHours(getTodayTotalSeconds())}小时！请作为角色赞美用户的毅力，回复简短有力（1-2句话）。不要用任何格式标记。]`
+                            : `[系统提示：学习计时器触发事件：${scene}，科目：${subject}。请简短回应（1句话）。不要用任何格式标记。]`;
+                
+                const result = await ctx.generateRaw(prompt, '', false, false, '');
+                if (result && typeof result === 'string' && result.trim()) {
+                    sendSystemMessage(result.trim());
+                    return;
+                }
+            } catch { /* 回退到模板 */ }
+        }
+        sendSystemMessage(message);
+    }
+}
+
+// ============ 统计 ============
+
+function getTodayTotalSeconds() {
+    const key = getTodayKey();
+    const todayData = StudyTimer.dailyRecords[key] || {};
+    return Object.values(todayData).reduce((sum, s) => sum + s, 0);
+}
+
+function getSubjectTodaySeconds(subject) {
+    const key = getTodayKey();
+    const todayData = StudyTimer.dailyRecords[key] || {};
+    return todayData[subject] || 0;
+}
+
+function recordStudyTime(subject, seconds) {
+    const key = getTodayKey();
+    if (!StudyTimer.dailyRecords[key]) {
+        StudyTimer.dailyRecords[key] = {};
+    }
+    StudyTimer.dailyRecords[key][subject] = (StudyTimer.dailyRecords[key][subject] || 0) + seconds;
+    
+    // 清理90天前的旧记录
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 90);
+    const cutoffKey = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, '0')}-${String(cutoff.getDate()).padStart(2, '0')}`;
+    Object.keys(StudyTimer.dailyRecords).forEach(k => {
+        if (k < cutoffKey) delete StudyTimer.dailyRecords[k];
+    });
+    
+    saveDailyRecords();
+    checkMilestones();
+}
+
+function checkMilestones() {
+    const totalHours = getTodayTotalSeconds() / 3600;
+    const milestones = [4, 6, 8, 10, 12];
+    const todayKey = getTodayKey();
+    if (!StudyTimer.milestonesTriggered[todayKey]) {
+        StudyTimer.milestonesTriggered[todayKey] = {};
+    }
+    
+    for (const m of milestones) {
+        if (totalHours >= m && !StudyTimer.milestonesTriggered[todayKey][m]) {
+            StudyTimer.milestonesTriggered[todayKey][m] = true;
+            sendAIInteraction('milestone');
+        }
+    }
+    // 清理旧日期的里程碑记录
+    Object.keys(StudyTimer.milestonesTriggered).forEach(k => {
+        if (k !== todayKey) delete StudyTimer.milestonesTriggered[k];
+    });
 }
 
 function getWeeklyStats() {
-    const stats = loadStats();
-    /** @type {Record<string, {label: string, total: number, subjects: Record<string, number>, isToday: boolean}>} */
-    const result = {};
-    const todayKey = getTodayKey();
-    for (let i = 6; i >= 0; i--) {
-        const d = new Date(Date.now() - i * 86400000);
-        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-        const dayRecords = stats.records[key] || {};
-        const total = Object.values(dayRecords).reduce((a, b) => a + b, 0);
-        const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
-        const label = `${d.getMonth() + 1}/${d.getDate()} 周${weekdays[d.getDay()]}`;
-        result[key] = { label, total, subjects: dayRecords, isToday: key === todayKey };
+    const weekKeys = getWeekKeys();
+    const stats = {};
+    for (const key of weekKeys) {
+        stats[key] = StudyTimer.dailyRecords[key] || {};
     }
-    return result;
+    return { weekKeys, stats };
 }
 
-function formatStatsMessage() {
-    const weekly = getWeeklyStats();
-    const todayTotal = getTodayTotalMinutes();
-    const goal = /** @type {Record<string, any>} */(extension_settings)[MODULE_NAME].daily_goal_minutes || 480;
-    const ext = /** @type {any} */(extension_settings)[MODULE_NAME];
-    const subjectGoals = /** @type {Record<string, number>} */(ext.subject_goals) || {};
-    const now = getCurrentTimeString();
-    const today = getCurrentDateString();
-    const goalPercent = goal > 0 ? Math.min(Math.round((todayTotal / goal) * 100), 100) : 0;
-    const barLen = 20;
-    const filled = Math.round(goalPercent / 5);
-    const progressBar = '█'.repeat(filled) + '░'.repeat(barLen - filled);
+// ============ 计时核心 ============
 
-    let msg = `📊 学习统计 | ${today} ${now}\n`;
-    msg += `━━━━━━━━━━━━━━━━━━━━\n`;
-    msg += `今日目标：${goal}分钟 ${progressBar} ${goalPercent}%\n`;
-    msg += `今日已完成：${todayTotal}分钟\n\n`;
+function startTick() {
+    stopTick();
+    StudyTimer.tickInterval = setInterval(tick, 1000);
+}
 
-    const stats = loadStats();
-    const todayKey = getTodayKey();
-    const todayRecords = stats.records[todayKey] || {};
-    if (Object.keys(todayRecords).length > 0) {
-        msg += `📋 今日科目明细：\n`;
-        for (const [subj, mins] of Object.entries(todayRecords)) {
-            const bar = '▌'.repeat(Math.min(Math.round(mins / 5), 20));
-            const subjGoal = subjectGoals[subj];
-            const goalStr = subjGoal ? ` / ${subjGoal}目` : '';
-            const check = subjGoal && mins >= subjGoal ? ' ✅' : '';
-            msg += `  ${subj}: ${mins}分钟${goalStr}${check} ${bar}\n`;
+function stopTick() {
+    if (StudyTimer.tickInterval) {
+        clearInterval(StudyTimer.tickInterval);
+        StudyTimer.tickInterval = null;
+    }
+}
+
+function tick() {
+    if (!StudyTimer.running || StudyTimer.paused) return;
+    
+    if (StudyTimer.timerType === 'countdown' || StudyTimer.timerType === 'break') {
+        StudyTimer.remainingSeconds--;
+        updateTimerDisplay();
+        if (StudyTimer.remainingSeconds <= 0) {
+            handleTimerComplete();
         }
-        // Also show subjects with goals but no records
-        for (const [subj, subjGoal] of Object.entries(subjectGoals)) {
-            if (!(subj in todayRecords)) {
-                msg += `  ${subj}: 0 / ${subjGoal}分钟 ❌\n`;
+    } else if (StudyTimer.timerType === 'stopwatch') {
+        StudyTimer.elapsedSeconds++;
+        updateTimerDisplay();
+    }
+    
+    // 每30秒自动保存
+    if (StudyTimer.elapsedSeconds % 30 === 0 || StudyTimer.remainingSeconds % 30 === 0) {
+        saveTimerState();
+    }
+}
+
+function handleTimerComplete() {
+    stopTick();
+    playAlarm();
+    
+    if (StudyTimer.timerType === 'countdown') {
+        // 番茄钟完成
+        const studySeconds = StudyTimer.totalDuration;
+        recordStudyTime(StudyTimer.currentSubject, studySeconds);
+        StudyTimer.pomodoroCount++;
+        StudyTimer.sessionPomodoros++;
+        
+        sendAIInteraction('complete');
+        
+        // 判断是否需要长休息
+        const isLongBreak = (StudyTimer.sessionPomodoros % StudyTimer.settings.longBreakInterval === 0);
+        const breakDuration = isLongBreak 
+            ? StudyTimer.settings.longBreakMinutes * 60 
+            : StudyTimer.settings.shortBreakMinutes * 60;
+        
+        if (StudyTimer.settings.autoStartBreak) {
+            startBreak(breakDuration, isLongBreak);
+        } else {
+            StudyTimer.running = false;
+            StudyTimer.timerType = null;
+            StudyTimer.remainingSeconds = 0;
+            saveTimerState();
+            updateTimerDisplay();
+            updatePanelUI();
+        }
+    } else if (StudyTimer.timerType === 'break') {
+        // 休息结束
+        StudyTimer.timerType = null;
+        StudyTimer.running = false;
+        StudyTimer.remainingSeconds = 0;
+        sendAIInteraction('breakEnd');
+        saveTimerState();
+        updateTimerDisplay();
+        updatePanelUI();
+    }
+}
+
+function startCountdown(subject, minutes) {
+    stopTick();
+    const totalSeconds = minutes * 60;
+    StudyTimer.timerType = 'countdown';
+    StudyTimer.currentSubject = subject;
+    StudyTimer.totalDuration = totalSeconds;
+    StudyTimer.remainingSeconds = totalSeconds;
+    StudyTimer.elapsedSeconds = 0;
+    StudyTimer.running = true;
+    StudyTimer.paused = false;
+    saveTimerState();
+    startTick();
+    updateTimerDisplay();
+    updatePanelUI();
+    playStartSound();
+    sendAIInteraction('start');
+}
+
+function startStopwatch(subject) {
+    stopTick();
+    StudyTimer.timerType = 'stopwatch';
+    StudyTimer.currentSubject = subject;
+    StudyTimer.elapsedSeconds = 0;
+    StudyTimer.remainingSeconds = 0;
+    StudyTimer.totalDuration = 0;
+    StudyTimer.running = true;
+    StudyTimer.paused = false;
+    saveTimerState();
+    startTick();
+    updateTimerDisplay();
+    updatePanelUI();
+    playStartSound();
+    sendAIInteraction('start');
+}
+
+function startBreak(seconds, isLong) {
+    stopTick();
+    StudyTimer.timerType = 'break';
+    StudyTimer.totalDuration = seconds;
+    StudyTimer.remainingSeconds = seconds;
+    StudyTimer.elapsedSeconds = 0;
+    StudyTimer.running = true;
+    StudyTimer.paused = false;
+    saveTimerState();
+    startTick();
+    updateTimerDisplay();
+    updatePanelUI();
+    sendAIInteraction('breakStart');
+}
+
+function pauseTimer() {
+    StudyTimer.paused = true;
+    saveTimerState();
+    updatePanelUI();
+}
+
+function resumeTimer() {
+    if (!StudyTimer.running) return;
+    StudyTimer.paused = false;
+    saveTimerState();
+    updatePanelUI();
+}
+
+function stopTimer() {
+    if (StudyTimer.timerType === 'stopwatch' && StudyTimer.elapsedSeconds > 0) {
+        recordStudyTime(StudyTimer.currentSubject, StudyTimer.elapsedSeconds);
+        sendAIInteraction('complete');
+    }
+    stopTick();
+    StudyTimer.running = false;
+    StudyTimer.paused = false;
+    StudyTimer.timerType = null;
+    StudyTimer.remainingSeconds = 0;
+    StudyTimer.elapsedSeconds = 0;
+    StudyTimer.totalDuration = 0;
+    saveTimerState();
+    updateTimerDisplay();
+    updatePanelUI();
+}
+
+function resetPomodoroSession() {
+    StudyTimer.sessionPomodoros = 0;
+    saveTimerState();
+}
+
+// ============ UI ============
+
+function createStyles() {
+    const css = `
+/* ===== 番茄学习计时器 - 手机专用样式 ===== */
+#study-timer-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    z-index: 9998;
+    background: rgba(0,0,0,0.4);
+    display: none;
+    pointer-events: none;
+}
+#study-timer-overlay.visible {
+    display: block;
+    pointer-events: auto;
+}
+
+#study-timer-floating-btn {
+    position: fixed;
+    bottom: 20px;
+    right: 16px;
+    z-index: 9999;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+    border: none;
+    box-shadow: 0 4px 15px rgba(238, 90, 36, 0.5);
+    cursor: pointer;
+    font-size: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.2s, box-shadow 0.2s;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+    -webkit-user-select: none;
+}
+#study-timer-floating-btn:active {
+    transform: scale(0.92);
+    box-shadow: 0 2px 8px rgba(238, 90, 36, 0.4);
+}
+#study-timer-floating-btn.running {
+    background: linear-gradient(135deg, #2ed573, #7bed9f);
+    box-shadow: 0 4px 15px rgba(46, 213, 115, 0.5);
+    animation: pulse-green 2s infinite;
+}
+#study-timer-floating-btn.paused {
+    background: linear-gradient(135deg, #ffa502, #ff6348);
+    animation: none;
+}
+@keyframes pulse-green {
+    0%, 100% { box-shadow: 0 4px 15px rgba(46, 213, 115, 0.5); }
+    50% { box-shadow: 0 4px 25px rgba(46, 213, 115, 0.8); }
+}
+
+#study-timer-floating-btn .mini-time {
+    display: none;
+    font-size: 11px;
+    color: #fff;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}
+#study-timer-floating-btn.running .mini-time,
+#study-timer-floating-btn.paused .mini-time {
+    display: block;
+}
+#study-timer-floating-btn:not(.running):not(.paused) .btn-icon {
+    display: block;
+}
+#study-timer-floating-btn.running .btn-icon,
+#study-timer-floating-btn.paused .btn-icon {
+    display: none;
+}
+
+/* ===== 主面板 ===== */
+#study-timer-panel {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 10000;
+    background: #1e1e2e;
+    border-radius: 20px 20px 0 0;
+    box-shadow: 0 -4px 30px rgba(0,0,0,0.5);
+    padding: 20px 16px 28px;
+    transform: translateY(100%);
+    transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    max-height: 85vh;
+    overflow-y: auto;
+    color: #cdd6f4;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+}
+#study-timer-panel.visible {
+    transform: translateY(0);
+}
+
+/* 面板手柄 */
+#study-timer-panel .panel-handle {
+    width: 40px;
+    height: 5px;
+    border-radius: 3px;
+    background: #45475a;
+    margin: 0 auto 16px;
+    cursor: grab;
+}
+
+/* 计时显示 */
+#study-timer-panel .timer-display {
+    text-align: center;
+    padding: 10px 0 16px;
+}
+#study-timer-panel .timer-display .time {
+    font-size: 64px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 2px;
+    color: #cdd6f4;
+    line-height: 1.1;
+}
+#study-timer-panel .timer-display .time.countdown-active { color: #ff6b6b; }
+#study-timer-panel .timer-display .time.stopwatch-active { color: #2ed573; }
+#study-timer-panel .timer-display .time.break-active { color: #89b4fa; }
+#study-timer-panel .timer-display .label {
+    font-size: 13px;
+    color: #a6adc8;
+    margin-top: 4px;
+}
+
+/* 科目选择 */
+#study-timer-panel .subject-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+    justify-content: center;
+}
+#study-timer-panel .subject-chip {
+    padding: 8px 16px;
+    border-radius: 20px;
+    border: 1.5px solid #45475a;
+    background: #313244;
+    color: #cdd6f4;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+}
+#study-timer-panel .subject-chip:active {
+    transform: scale(0.95);
+}
+#study-timer-panel .subject-chip.selected {
+    border-color: #ff6b6b;
+    background: #3b1f2b;
+    color: #ff6b6b;
+    font-weight: 600;
+}
+
+/* 快捷时间按钮 */
+#study-timer-panel .quick-time-row {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+}
+#study-timer-panel .quick-time-btn {
+    padding: 10px 18px;
+    border-radius: 16px;
+    border: 1.5px solid #45475a;
+    background: #313244;
+    color: #cdd6f4;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    -webkit-tap-highlight-color: transparent;
+}
+#study-timer-panel .quick-time-btn:active {
+    transform: scale(0.93);
+}
+#study-timer-panel .quick-time-btn.pomodoro {
+    border-color: #f38ba8;
+    color: #f38ba8;
+}
+
+/* 操作按钮 */
+#study-timer-panel .action-row {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+}
+#study-timer-panel .btn {
+    padding: 12px 24px;
+    border-radius: 25px;
+    border: none;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    -webkit-tap-highlight-color: transparent;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+#study-timer-panel .btn:active {
+    transform: scale(0.94);
+}
+#study-timer-panel .btn-start {
+    background: #2ed573;
+    color: #1e1e2e;
+}
+#study-timer-panel .btn-pause {
+    background: #ffa502;
+    color: #1e1e2e;
+}
+#study-timer-panel .btn-resume {
+    background: #2ed573;
+    color: #1e1e2e;
+}
+#study-timer-panel .btn-stop {
+    background: #ff4757;
+    color: #fff;
+}
+#study-timer-panel .btn-forward {
+    background: #3742fa;
+    color: #fff;
+}
+#study-timer-panel .btn-break {
+    background: #89b4fa;
+    color: #1e1e2e;
+}
+
+/* 底部工具栏 */
+#study-timer-panel .bottom-toolbar {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+#study-timer-panel .tool-btn {
+    padding: 8px 16px;
+    border-radius: 14px;
+    border: 1px solid #45475a;
+    background: #313244;
+    color: #a6adc8;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+#study-timer-panel .tool-btn:active {
+    background: #45475a;
+}
+
+/* 统计面板 */
+#study-timer-stats-panel {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 10001;
+    background: #1e1e2e;
+    border-radius: 20px 20px 0 0;
+    box-shadow: 0 -4px 30px rgba(0,0,0,0.5);
+    padding: 20px 16px 28px;
+    transform: translateY(100%);
+    transition: transform 0.35s ease;
+    max-height: 80vh;
+    overflow-y: auto;
+    color: #cdd6f4;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+}
+#study-timer-stats-panel.visible {
+    transform: translateY(0);
+}
+#study-timer-stats-panel .stats-title {
+    font-size: 18px;
+    font-weight: 700;
+    text-align: center;
+    margin-bottom: 16px;
+    color: #f5c542;
+}
+#study-timer-stats-panel .stat-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid #313244;
+    font-size: 14px;
+}
+#study-timer-stats-panel .stat-subject { font-weight: 600; }
+#study-timer-stats-panel .stat-time { color: #a6e3a1; }
+#study-timer-stats-panel .progress-bar {
+    width: 100%;
+    height: 6px;
+    background: #313244;
+    border-radius: 3px;
+    margin: 4px 0;
+    overflow: hidden;
+}
+#study-timer-stats-panel .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #2ed573, #7bed9f);
+    border-radius: 3px;
+    transition: width 0.3s ease;
+}
+#study-timer-stats-panel .goal-indicator {
+    font-size: 11px;
+    color: #a6adc8;
+    text-align: right;
+}
+#study-timer-stats-panel .total-row {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 2px solid #45475a;
+    font-size: 16px;
+    font-weight: 700;
+}
+#study-timer-stats-panel .close-btn {
+    display: block;
+    margin: 16px auto 0;
+    padding: 10px 40px;
+    border-radius: 20px;
+    border: none;
+    background: #45475a;
+    color: #cdd6f4;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+/* 设置面板 */
+#study-timer-settings-panel {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 10001;
+    background: #1e1e2e;
+    border-radius: 20px 20px 0 0;
+    box-shadow: 0 -4px 30px rgba(0,0,0,0.5);
+    padding: 20px 16px 28px;
+    transform: translateY(100%);
+    transition: transform 0.35s ease;
+    max-height: 80vh;
+    overflow-y: auto;
+    color: #cdd6f4;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+}
+#study-timer-settings-panel.visible {
+    transform: translateY(0);
+}
+#study-timer-settings-panel .settings-title {
+    font-size: 18px;
+    font-weight: 700;
+    text-align: center;
+    margin-bottom: 16px;
+}
+#study-timer-settings-panel .setting-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid #313244;
+    font-size: 14px;
+}
+#study-timer-settings-panel .setting-item input[type="number"] {
+    width: 65px;
+    padding: 6px 8px;
+    border-radius: 8px;
+    border: 1px solid #45475a;
+    background: #313244;
+    color: #cdd6f4;
+    font-size: 14px;
+    text-align: center;
+}
+#study-timer-settings-panel .setting-item input[type="text"] {
+    width: 120px;
+    padding: 6px 8px;
+    border-radius: 8px;
+    border: 1px solid #45475a;
+    background: #313244;
+    color: #cdd6f4;
+    font-size: 13px;
+}
+#study-timer-settings-panel .setting-item select {
+    padding: 6px 10px;
+    border-radius: 8px;
+    border: 1px solid #45475a;
+    background: #313244;
+    color: #cdd6f4;
+    font-size: 13px;
+}
+#study-timer-settings-panel .toggle-switch {
+    width: 48px;
+    height: 26px;
+    border-radius: 13px;
+    background: #45475a;
+    position: relative;
+    cursor: pointer;
+    transition: background 0.3s;
+}
+#study-timer-settings-panel .toggle-switch.on {
+    background: #2ed573;
+}
+#study-timer-settings-panel .toggle-switch::after {
+    content: '';
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: #fff;
+    transition: transform 0.3s;
+}
+#study-timer-settings-panel .toggle-switch.on::after {
+    transform: translateX(22px);
+}
+#study-timer-settings-panel .btn-row {
+    display: flex;
+    gap: 10px;
+    margin-top: 16px;
+    justify-content: center;
+}
+#study-timer-settings-panel .save-btn {
+    padding: 10px 30px;
+    border-radius: 20px;
+    border: none;
+    background: #2ed573;
+    color: #1e1e2e;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+}
+#study-timer-settings-panel .cancel-btn {
+    padding: 10px 30px;
+    border-radius: 20px;
+    border: none;
+    background: #45475a;
+    color: #cdd6f4;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+/* Toast */
+.study-timer-toast {
+    position: fixed;
+    top: 60px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10010;
+    background: #313244;
+    color: #cdd6f4;
+    padding: 12px 24px;
+    border-radius: 25px;
+    font-size: 14px;
+    font-weight: 600;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+    opacity: 0;
+    transition: opacity 0.3s;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    pointer-events: none;
+}
+.study-timer-toast.show {
+    opacity: 1;
+}
+
+/* 手机横屏优化 */
+@media (max-width: 768px) and (orientation: landscape) {
+    #study-timer-panel .timer-display .time {
+        font-size: 42px;
+    }
+    #study-timer-panel .quick-time-row {
+        gap: 6px;
+    }
+    #study-timer-panel .quick-time-btn {
+        padding: 8px 14px;
+        font-size: 13px;
+    }
+}
+`;
+
+    const styleEl = document.createElement('style');
+    styleEl.id = 'study-timer-styles';
+    styleEl.textContent = css;
+    document.head.appendChild(styleEl);
+}
+
+function showToast(msg, duration = 2000) {
+    let toast = document.getElementById('study-timer-toast');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'study-timer-toast';
+        toast.className = 'study-timer-toast';
+        document.body.appendChild(toast);
+    }
+    toast.textContent = msg;
+    toast.classList.add('show');
+    clearTimeout(toast._timeout);
+    toast._timeout = setTimeout(() => toast.classList.remove('show'), duration);
+}
+
+function createUI() {
+    // 浮动按钮
+    const floatingBtn = document.createElement('button');
+    floatingBtn.id = 'study-timer-floating-btn';
+    floatingBtn.innerHTML = '<span class="btn-icon">🍅</span><span class="mini-time"></span>';
+    floatingBtn.addEventListener('click', togglePanel);
+    document.body.appendChild(floatingBtn);
+
+    // 遮罩层
+    const overlay = document.createElement('div');
+    overlay.id = 'study-timer-overlay';
+    overlay.addEventListener('click', closeAllPanels);
+    document.body.appendChild(overlay);
+
+    // 主面板
+    const panel = document.createElement('div');
+    panel.id = 'study-timer-panel';
+    panel.innerHTML = buildPanelHTML();
+    document.body.appendChild(panel);
+    bindPanelEvents(panel);
+
+    // 统计面板
+    const statsPanel = document.createElement('div');
+    statsPanel.id = 'study-timer-stats-panel';
+    document.body.appendChild(statsPanel);
+
+    // 设置面板
+    const settingsPanel = document.createElement('div');
+    settingsPanel.id = 'study-timer-settings-panel';
+    document.body.appendChild(settingsPanel);
+
+    return { floatingBtn, panel, statsPanel, settingsPanel, overlay };
+}
+
+function buildPanelHTML() {
+    const subjects = StudyTimer.settings.subjects;
+    const subjectChips = subjects.map(s => 
+        `<span class="subject-chip" data-subject="${escapeHTML(s)}">${escapeHTML(s)}</span>`
+    ).join('');
+
+    return `
+        <div class="panel-handle" id="st-panel-handle"></div>
+        <div class="timer-display">
+            <div class="time" id="st-time-display">00:00</div>
+            <div class="label" id="st-time-label">选择科目开始学习</div>
+        </div>
+        <div class="subject-row" id="st-subject-row">
+            ${subjectChips}
+        </div>
+        <div class="quick-time-row">
+            <button class="quick-time-btn pomodoro" data-min="25">🍅 25分钟</button>
+            <button class="quick-time-btn" data-min="15">15分钟</button>
+            <button class="quick-time-btn" data-min="30">30分钟</button>
+            <button class="quick-time-btn" data-min="45">45分钟</button>
+            <button class="quick-time-btn" data-min="60">60分钟</button>
+        </div>
+        <div class="action-row" id="st-action-row">
+            <button class="btn btn-forward" id="st-btn-forward">▶ 正计时</button>
+            <button class="btn btn-start" id="st-btn-start" style="display:none;">▶ 开始</button>
+            <button class="btn btn-pause" id="st-btn-pause" style="display:none;">⏸ 暂停</button>
+            <button class="btn btn-resume" id="st-btn-resume" style="display:none;">▶ 继续</button>
+            <button class="btn btn-stop" id="st-btn-stop" style="display:none;">⏹ 停止</button>
+            <button class="btn btn-break" id="st-btn-break" style="display:none;">☕ 休息</button>
+        </div>
+        <div class="bottom-toolbar">
+            <button class="tool-btn" id="st-tool-stats">📊 统计</button>
+            <button class="tool-btn" id="st-tool-time">🕐 当前</button>
+            <button class="tool-btn" id="st-tool-settings">⚙ 设置</button>
+            <button class="tool-btn" id="st-tool-ai">🤖 AI消息</button>
+        </div>
+    `;
+}
+
+function escapeHTML(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+function bindPanelEvents(panel) {
+    // 科目选择
+    panel.querySelector('#st-subject-row').addEventListener('click', (e) => {
+        const chip = e.target.closest('.subject-chip');
+        if (!chip) return;
+        panel.querySelectorAll('.subject-chip').forEach(c => c.classList.remove('selected'));
+        chip.classList.add('selected');
+        StudyTimer.currentSubject = chip.dataset.subject;
+    });
+
+    // 快捷时间按钮
+    panel.querySelector('.quick-time-row').addEventListener('click', (e) => {
+        const btn = e.target.closest('.quick-time-btn');
+        if (!btn) return;
+        const minutes = parseInt(btn.dataset.min);
+        if (StudyTimer.running) {
+            showToast('⚠ 请先停止当前计时');
+            return;
+        }
+        startCountdown(StudyTimer.currentSubject, minutes);
+    });
+
+    // 正计时
+    panel.querySelector('#st-btn-forward').addEventListener('click', () => {
+        if (StudyTimer.running) {
+            showToast('⚠ 请先停止当前计时');
+            return;
+        }
+        startStopwatch(StudyTimer.currentSubject);
+    });
+
+    // 暂停
+    panel.querySelector('#st-btn-pause').addEventListener('click', pauseTimer);
+    // 继续
+    panel.querySelector('#st-btn-resume').addEventListener('click', resumeTimer);
+    // 停止
+    panel.querySelector('#st-btn-stop').addEventListener('click', stopTimer);
+    // 休息
+    panel.querySelector('#st-btn-break').addEventListener('click', () => {
+        startBreak(StudyTimer.settings.shortBreakMinutes * 60, false);
+    });
+
+    // 工具栏
+    panel.querySelector('#st-tool-stats').addEventListener('click', showStatsPanel);
+    panel.querySelector('#st-tool-time').addEventListener('click', () => {
+        const now = new Date();
+        showToast(`🕐 ${now.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`);
+    });
+    panel.querySelector('#st-tool-settings').addEventListener('click', showSettingsPanel);
+    panel.querySelector('#st-tool-ai').addEventListener('click', toggleAIMode);
+
+    // 手柄拖拽关闭
+    const handle = panel.querySelector('#st-panel-handle');
+    let startY = 0;
+    handle.addEventListener('touchstart', (e) => {
+        startY = e.touches[0].clientY;
+    });
+    handle.addEventListener('touchmove', (e) => {
+        const dy = e.touches[0].clientY - startY;
+        if (dy > 60) {
+            closeAllPanels();
+        }
+    });
+}
+
+function updateTimerDisplay() {
+    const display = document.getElementById('st-time-display');
+    const label = document.getElementById('st-time-label');
+    if (!display || !label) return;
+
+    if (StudyTimer.timerType === 'countdown') {
+        display.textContent = formatTime(StudyTimer.remainingSeconds);
+        display.className = 'time countdown-active';
+        label.textContent = `${StudyTimer.currentSubject} · 倒计时`;
+    } else if (StudyTimer.timerType === 'stopwatch') {
+        display.textContent = formatTime(StudyTimer.elapsedSeconds);
+        display.className = 'time stopwatch-active';
+        label.textContent = `${StudyTimer.currentSubject} · 正计时`;
+    } else if (StudyTimer.timerType === 'break') {
+        display.textContent = formatTime(StudyTimer.remainingSeconds);
+        display.className = 'time break-active';
+        label.textContent = '☕ 休息中';
+    } else {
+        display.textContent = '00:00';
+        display.className = 'time';
+        label.textContent = '选择科目开始学习';
+    }
+
+    // 更新浮动按钮上的时间
+    updateFloatingBtn();
+}
+
+function updateFloatingBtn() {
+    const btn = document.getElementById('study-timer-floating-btn');
+    if (!btn) return;
+    const miniTime = btn.querySelector('.mini-time');
+
+    if (StudyTimer.running) {
+        const timeStr = StudyTimer.timerType === 'stopwatch'
+            ? formatTime(StudyTimer.elapsedSeconds)
+            : formatTime(StudyTimer.remainingSeconds);
+        if (miniTime) miniTime.textContent = timeStr;
+        btn.classList.add('running');
+        btn.classList.toggle('paused', StudyTimer.paused);
+    } else {
+        btn.classList.remove('running', 'paused');
+        if (miniTime) miniTime.textContent = '';
+    }
+}
+
+function updatePanelUI() {
+    const panel = document.getElementById('study-timer-panel');
+    if (!panel) return;
+
+    const btnForward = panel.querySelector('#st-btn-forward');
+    const btnStart = panel.querySelector('#st-btn-start');
+    const btnPause = panel.querySelector('#st-btn-pause');
+    const btnResume = panel.querySelector('#st-btn-resume');
+    const btnStop = panel.querySelector('#st-btn-stop');
+    const btnBreak = panel.querySelector('#st-btn-break');
+
+    // 隐藏所有操作按钮
+    [btnForward, btnStart, btnPause, btnResume, btnStop, btnBreak].forEach(b => {
+        if (b) b.style.display = 'none';
+    });
+
+    if (StudyTimer.running && !StudyTimer.paused) {
+        // 运行中：显示暂停和停止
+        if (btnPause) btnPause.style.display = '';
+        if (btnStop) btnStop.style.display = '';
+    } else if (StudyTimer.running && StudyTimer.paused) {
+        // 已暂停：显示继续和停止
+        if (btnResume) btnResume.style.display = '';
+        if (btnStop) btnStop.style.display = '';
+    } else {
+        // 未运行：显示正计时和休息
+        if (btnForward) btnForward.style.display = '';
+        if (btnBreak && StudyTimer.timerType === null) btnBreak.style.display = '';
+    }
+
+    updateTimerDisplay();
+}
+
+function togglePanel() {
+    const panel = document.getElementById('study-timer-panel');
+    const overlay = document.getElementById('study-timer-overlay');
+    const statsPanel = document.getElementById('study-timer-stats-panel');
+    const settingsPanel = document.getElementById('study-timer-settings-panel');
+
+    // 关闭其他面板
+    if (statsPanel) statsPanel.classList.remove('visible');
+    if (settingsPanel) settingsPanel.classList.remove('visible');
+
+    const isVisible = panel.classList.contains('visible');
+    if (isVisible) {
+        panel.classList.remove('visible');
+        if (overlay) overlay.classList.remove('visible');
+    } else {
+        panel.classList.add('visible');
+        if (overlay) overlay.classList.add('visible');
+        refreshSubjectChips();
+        updateTimerDisplay();
+        updatePanelUI();
+    }
+}
+
+function closeAllPanels() {
+    document.getElementById('study-timer-panel')?.classList.remove('visible');
+    document.getElementById('study-timer-stats-panel')?.classList.remove('visible');
+    document.getElementById('study-timer-settings-panel')?.classList.remove('visible');
+    document.getElementById('study-timer-overlay')?.classList.remove('visible');
+}
+
+function refreshSubjectChips() {
+    const row = document.getElementById('st-subject-row');
+    if (!row) return;
+    const subjects = StudyTimer.settings.subjects;
+    row.innerHTML = subjects.map(s => 
+        `<span class="subject-chip${s === StudyTimer.currentSubject ? ' selected' : ''}" data-subject="${escapeHTML(s)}">${escapeHTML(s)}</span>`
+    ).join('');
+}
+
+function showStatsPanel() {
+    const panel = document.getElementById('study-timer-panel');
+    const statsPanel = document.getElementById('study-timer-stats-panel');
+    if (!statsPanel) return;
+
+    // 隐藏主面板
+    if (panel) panel.classList.remove('visible');
+
+    const todayKey = getTodayKey();
+    const todayData = StudyTimer.dailyRecords[todayKey] || {};
+    const subjects = StudyTimer.settings.subjects;
+    const totalSeconds = getTodayTotalSeconds();
+
+    let html = `<div class="stats-title">📊 今日学习统计</div>`;
+
+    for (const subject of subjects) {
+        const secs = todayData[subject] || 0;
+        const goalMins = StudyTimer.settings.dailyGoals[subject] || 0;
+        const pct = goalMins > 0 ? Math.min(100, (secs / (goalMins * 60)) * 100) : 0;
+        html += `
+            <div class="stat-row">
+                <span class="stat-subject">${escapeHTML(subject)}</span>
+                <span class="stat-time">${formatTime(secs)}</span>
+            </div>
+            <div class="progress-bar">
+                <div class="progress-fill" style="width:${pct}%"></div>
+            </div>
+            ${goalMins > 0 ? `<div class="goal-indicator">目标 ${goalMins}分钟 · ${pct.toFixed(0)}%</div>` : ''}
+        `;
+    }
+
+    html += `
+        <div class="stat-row total-row">
+            <span>总计</span>
+            <span>${formatTime(totalSeconds)} (${formatHours(totalSeconds)}小时)</span>
+        </div>
+        <div class="stat-row" style="font-size:12px;color:#a6adc8;">
+            <span>番茄数</span>
+            <span>${StudyTimer.pomodoroCount} 🍅</span>
+        </div>
+    `;
+
+    // 本周统计
+    const { weekKeys, stats: weekStats } = getWeeklyStats();
+    let weekTotal = 0;
+    for (const key of weekKeys) {
+        weekTotal += Object.values(weekStats[key] || {}).reduce((s, v) => s + v, 0);
+    }
+    html += `
+        <div class="stat-row total-row" style="border-top:2px solid #89b4fa;">
+            <span>📅 本周总计</span>
+            <span>${formatTime(weekTotal)} (${formatHours(weekTotal)}小时)</span>
+        </div>
+    `;
+
+    html += `<button class="close-btn" onclick="document.getElementById('study-timer-stats-panel').classList.remove('visible');document.getElementById('study-timer-overlay').classList.remove('visible');">关闭</button>`;
+
+    statsPanel.innerHTML = html;
+    statsPanel.classList.add('visible');
+    document.getElementById('study-timer-overlay')?.classList.add('visible');
+}
+
+function showSettingsPanel() {
+    const panel = document.getElementById('study-timer-panel');
+    const settingsPanel = document.getElementById('study-timer-settings-panel');
+    if (!settingsPanel) return;
+
+    if (panel) panel.classList.remove('visible');
+
+    const s = StudyTimer.settings;
+    let html = `
+        <div class="settings-title">⚙ 计时器设置</div>
+        <div class="setting-item">
+            <span>番茄钟时长 (分钟)</span>
+            <input type="number" id="st-set-default-min" value="${s.defaultMinutes}" min="1" max="120">
+        </div>
+        <div class="setting-item">
+            <span>短休息时长 (分钟)</span>
+            <input type="number" id="st-set-short-break" value="${s.shortBreakMinutes}" min="1" max="30">
+        </div>
+        <div class="setting-item">
+            <span>长休息时长 (分钟)</span>
+            <input type="number" id="st-set-long-break" value="${s.longBreakMinutes}" min="5" max="60">
+        </div>
+        <div class="setting-item">
+            <span>长休息间隔 (番茄数)</span>
+            <input type="number" id="st-set-long-interval" value="${s.longBreakInterval}" min="2" max="10">
+        </div>
+        <div class="setting-item">
+            <span>科目列表 (逗号分隔)</span>
+            <input type="text" id="st-set-subjects" value="${escapeHTML(s.subjects.join(','))}" style="width:150px;">
+        </div>
+        <div class="setting-item">
+            <span>科目每日目标 (如: 数学=60,英语=30)</span>
+            <input type="text" id="st-set-goals" value="${escapeHTML(Object.entries(s.dailyGoals || {}).map(([k,v]) => `${k}=${v}`).join(','))}" style="width:180px;">
+        </div>
+        <div class="setting-item">
+            <span>AI 角色互动</span>
+            <div class="toggle-switch ${s.aiInteractionEnabled ? 'on' : ''}" id="st-set-ai-enabled"></div>
+        </div>
+        <div class="setting-item">
+            <span>AI 消息模式</span>
+            <select id="st-set-ai-mode">
+                <option value="auto" ${s.aiMessageMode === 'auto' ? 'selected' : ''}>自动 (AI生成)</option>
+                <option value="template" ${s.aiMessageMode === 'template' ? 'selected' : ''}>固定模板</option>
+                <option value="off" ${s.aiMessageMode === 'off' ? 'selected' : ''}>关闭</option>
+            </select>
+        </div>
+        <div class="setting-item">
+            <span>自动开始休息</span>
+            <div class="toggle-switch ${s.autoStartBreak ? 'on' : ''}" id="st-set-auto-break"></div>
+        </div>
+        <div class="setting-item">
+            <span>提示音量</span>
+            <input type="number" id="st-set-volume" value="${s.alertVolume}" min="0" max="1" step="0.1">
+        </div>
+        <div class="btn-row">
+            <button class="cancel-btn" id="st-settings-cancel">取消</button>
+            <button class="save-btn" id="st-settings-save">💾 保存</button>
+        </div>
+    `;
+
+    settingsPanel.innerHTML = html;
+    settingsPanel.classList.add('visible');
+    document.getElementById('study-timer-overlay')?.classList.add('visible');
+
+    // 切换开关
+    settingsPanel.querySelector('#st-set-ai-enabled').addEventListener('click', function () {
+        this.classList.toggle('on');
+    });
+    settingsPanel.querySelector('#st-set-auto-break').addEventListener('click', function () {
+        this.classList.toggle('on');
+    });
+
+    // 保存
+    settingsPanel.querySelector('#st-settings-save').addEventListener('click', () => {
+        StudyTimer.settings.defaultMinutes = parseInt(document.getElementById('st-set-default-min').value) || 25;
+        StudyTimer.settings.shortBreakMinutes = parseInt(document.getElementById('st-set-short-break').value) || 5;
+        StudyTimer.settings.longBreakMinutes = parseInt(document.getElementById('st-set-long-break').value) || 15;
+        StudyTimer.settings.longBreakInterval = parseInt(document.getElementById('st-set-long-interval').value) || 4;
+        StudyTimer.settings.alertVolume = parseFloat(document.getElementById('st-set-volume').value) || 0.7;
+        StudyTimer.settings.aiInteractionEnabled = document.getElementById('st-set-ai-enabled').classList.contains('on');
+        StudyTimer.settings.aiMessageMode = document.getElementById('st-set-ai-mode').value;
+        StudyTimer.settings.autoStartBreak = document.getElementById('st-set-auto-break').classList.contains('on');
+
+        // 科目列表
+        const subsStr = document.getElementById('st-set-subjects').value;
+        StudyTimer.settings.subjects = subsStr.split(',').map(s => s.trim()).filter(Boolean);
+        if (StudyTimer.settings.subjects.length === 0) {
+            StudyTimer.settings.subjects = [...STUDY_TIMER_DEFAULTS.subjects];
+        }
+
+        // 每日目标
+        const goalsStr = document.getElementById('st-set-goals').value;
+        StudyTimer.settings.dailyGoals = {};
+        goalsStr.split(',').forEach(part => {
+            const [subj, mins] = part.split('=').map(s => s.trim());
+            if (subj && mins && !isNaN(parseInt(mins))) {
+                StudyTimer.settings.dailyGoals[subj] = parseInt(mins);
             }
-        }
-        msg += `\n`;
-    }
+        });
 
-    msg += `📅 本周概览：\n`;
-    for (const [key, day] of Object.entries(weekly)) {
-        const marker = day.isToday ? '◀' : ' ';
-        const bar = day.total > 0 ? '█'.repeat(Math.min(Math.round(day.total / 10), 10)) : '';
-        msg += `  ${marker}${day.label}: ${day.total}分钟 ${bar}\n`;
-    }
+        saveSettings();
+        refreshSubjectChips();
+        settingsPanel.classList.remove('visible');
+        document.getElementById('study-timer-overlay')?.classList.remove('visible');
+        showToast('✅ 设置已保存');
+    });
 
-    if (todayTotal >= goal) {
-        msg += `\n✅ 今日目标已达成！`;
-    }
-
-    return msg;
+    // 取消
+    settingsPanel.querySelector('#st-settings-cancel').addEventListener('click', () => {
+        settingsPanel.classList.remove('visible');
+        document.getElementById('study-timer-overlay')?.classList.remove('visible');
+    });
 }
 
-// ==================== Slash Commands ====================
+function toggleAIMode() {
+    const modes = ['auto', 'template', 'off'];
+    const labels = { auto: 'AI自动', template: '固定模板', off: '已关闭' };
+    const idx = modes.indexOf(StudyTimer.settings.aiMessageMode);
+    const next = modes[(idx + 1) % modes.length];
+    StudyTimer.settings.aiMessageMode = next;
+    StudyTimer.settings.aiInteractionEnabled = next !== 'off';
+    saveSettings();
+    showToast(`🤖 AI消息: ${labels[next]}`);
+}
+
+// ============ 斜杠命令注册 ============
 
 function registerSlashCommands() {
-    // /study 数学 30  (countdown)
-    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
-        name: 'study',
-        aliases: ['timer'],
-        callback: (args, value) => {
-            const subject = String(args.subject || args.科目 || '学习');
-            const minutes = Number(args.minutes || args.分钟 || args.time || args.时间 || 25);
+    const ctx = getContext();
+    if (!ctx || !ctx.registerSlashCommand) return;
 
-            if (isNaN(minutes) || minutes <= 0 || minutes > 480) {
-                return '请输入有效的分钟数（1-480）。用法：/study 科目=数学 分钟=30';
-            }
-
-            startTimer(minutes, subject);
-            return '';
-        },
-        helpString: '开始倒计时学习。用法：/study 科目=数学 分钟=30 或 /study 数学 30',
-        namedArgumentList: [
-            SlashCommandNamedArgument.fromProps({ name: 'subject', aliasList: ['科目'], description: '科目名称', typeList: [ARGUMENT_TYPE.STRING], defaultValue: '学习' }),
-            SlashCommandNamedArgument.fromProps({ name: 'minutes', aliasList: ['分钟', 'time', '时间'], description: '计时分钟数', typeList: [ARGUMENT_TYPE.NUMBER], defaultValue: '25' }),
-        ],
-    }));
-
-    // /study-forward 数学  (count-up / stopwatch)
-    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
-        name: 'study-forward',
-        aliases: ['timer-forward', '正计时'],
-        callback: (args, value) => {
-            const subject = String(args.subject || args.科目 || '学习');
-            startForwardTimer(subject);
-            return '';
-        },
-        helpString: '开始正计时（不限时长）。用法：/study-forward 科目=数学 或 /正计时 数学',
-        namedArgumentList: [
-            SlashCommandNamedArgument.fromProps({ name: 'subject', aliasList: ['科目'], description: '科目名称', typeList: [ARGUMENT_TYPE.STRING], defaultValue: '学习' }),
-        ],
-    }));
-
-    // /timer stop
-    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
-        name: 'timer-stop',
-        aliases: ['stop-timer'],
-        callback: () => {
-            if (!timerRunning) return '没有正在运行的计时器。';
-            const subject = timerSubject;
-            stopTimer();
-            return `计时器已停止（${subject}）。`;
-        },
-        helpString: '停止当前计时器',
-    }));
-
-    // /timer status
-    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
-        name: 'timer-status',
-        aliases: ['study-status'],
-        callback: () => timerStatus(),
-        helpString: '查看计时器状态',
-    }));
-
-    // /timer pause
-    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
-        name: 'timer-pause',
-        aliases: ['pause-timer'],
-        callback: () => {
-            if (!timerRunning) return '没有正在运行的计时器。';
-            if (timerPaused) return '计时器已经是暂停状态。';
-            togglePause();
-            return `计时器已暂停（${timerSubject}）。`;
-        },
-        helpString: '暂停计时器',
-    }));
-
-    // /timer resume
-    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
-        name: 'timer-resume',
-        aliases: ['resume-timer'],
-        callback: () => {
-            if (!timerRunning) return '没有正在运行的计时器。';
-            if (!timerPaused) return '计时器未暂停。';
-            togglePause();
-            return `计时器已恢复（${timerSubject}）。`;
-        },
-        helpString: '恢复计时器',
-    }));
-
-    // /study-stats - daily and weekly statistics
-    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
-        name: 'study-stats',
-        aliases: ['timer-stats', 'study-report', '今日统计', 'stats'],
-        callback: () => formatStatsMessage(),
-        helpString: '查看今日和本周学习统计',
-    }));
-
-    // /study-now - show current real time
-    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
-        name: 'study-now',
-        aliases: ['now', '现在时间', 'time'],
-        callback: () => {
-            const date = getCurrentDateString();
-            const time = getCurrentTimeString();
-            const period = getTimeBasedMessage();
-            const todayTotal = getTodayTotalMinutes();
-            return `🕐 ${date} ${time}（${period}）。今日已累计学习 ${todayTotal} 分钟。`;
-        },
-        helpString: '查看当前现实世界的日期和时间',
-    }));
-}
-
-// Listen for AI messages containing timer commands
-function initTimerCommands() {
-    log('initTimerCommands: 注册 CHARACTER_MESSAGE_RENDERED 监听');
-    eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, async (/** @type {number} */ messageId) => {
-        const mes = chat[messageId];
-        if (!mes || mes.is_user || mes.is_system) return;
-        const text = /** @type {string} */ (mes.mes);
-
-        // [timer:stop]
-        if (/\[timer:stop\]/i.test(text)) {
-            log('AI消息检测到 [timer:stop]');
-            if (timerRunning) {
-                stopTimer(true);
-                mes.mes = text.replace(/\[timer:stop\]/gi, '').trim();
-                addOneMessage(mes, { scroll: false });
-            }
+    // /study 科目 分钟数
+    ctx.registerSlashCommand('study', (args) => {
+        const argStr = typeof args === 'string' ? args : '';
+        const parts = argStr.trim().split(/\s+/);
+        
+        if (parts.length === 0 || !parts[0]) {
+            sendSystemMessage('用法: /study 科目 分钟数  例如: /study 数学 25');
             return;
         }
 
-        // [timer:科目:分钟数]  e.g. [timer:数学:30]
-        const match = text.match(/\[timer\s*[:：]\s*([^:\]]+)\s*[:：]\s*(\d+)\s*\]/i);
-        if (match) {
-            const subject = match[1].trim();
-            const minutes = parseInt(match[2], 10);
-            log(`AI消息检测到 [timer:${subject}:${minutes}]`);
-            if (minutes >= 1 && minutes <= 480) {
-                // Start silently — AI already said something, no extra message
-                timerMinutes = minutes;
-                timerSubject = subject;
-                timerPaused = false;
-                timerRunning = true;
-                timerStartedAt = Date.now();
-                timerEndTime = Date.now() + minutes * 60 * 1000;
+        const subject = parts[0];
+        let minutes = StudyTimer.settings.defaultMinutes;
 
-                createTimerUI();
-                showTimerUI();
+        if (parts.length >= 2 && !isNaN(parseInt(parts[1]))) {
+            minutes = Math.max(1, Math.min(180, parseInt(parts[1])));
+        }
 
-                timerInterval = setInterval(() => {
-                    const remaining = getRemainingTime();
-                    updateTimerUI();
-                    if (remaining <= 0 && !timerPaused) {
-                        completeTimer();
-                    }
-                }, 500);
+        if (StudyTimer.running) {
+            sendSystemMessage('⚠ 当前有计时器正在运行，请先停止。');
+            return;
+        }
 
-                // Clean command from AI message
-                mes.mes = text.replace(match[0], '').trim();
-                addOneMessage(mes, { scroll: false });
+        // 检查科目是否在列表中，不在则临时添加
+        if (!StudyTimer.settings.subjects.includes(subject)) {
+            StudyTimer.settings.subjects.push(subject);
+            saveSettings();
+        }
+
+        StudyTimer.currentSubject = subject;
+        startCountdown(subject, minutes);
+        sendSystemMessage(`🍅 开始 ${subject} 学习，倒计时 ${minutes} 分钟！`);
+    });
+
+    // /study-forward 科目
+    ctx.registerSlashCommand('study-forward', (args) => {
+        const subject = (typeof args === 'string' ? args : '').trim() || '其他';
+        if (StudyTimer.running) {
+            sendSystemMessage('⚠ 当前有计时器正在运行，请先停止。');
+            return;
+        }
+        if (!StudyTimer.settings.subjects.includes(subject)) {
+            StudyTimer.settings.subjects.push(subject);
+            saveSettings();
+        }
+        StudyTimer.currentSubject = subject;
+        startStopwatch(subject);
+        sendSystemMessage(`▶ ${subject} 正计时开始！`);
+    });
+
+    // /timer-stop
+    ctx.registerSlashCommand('timer-stop', () => {
+        if (!StudyTimer.running) {
+            sendSystemMessage('⏹ 当前没有运行中的计时器。');
+            return;
+        }
+        const duration = StudyTimer.timerType === 'stopwatch'
+            ? formatTime(StudyTimer.elapsedSeconds)
+            : formatTime(StudyTimer.remainingSeconds);
+        const subject = StudyTimer.currentSubject;
+        stopTimer();
+        sendSystemMessage(`⏹ 已停止 ${subject} 计时 (${duration})`);
+    });
+
+    // /timer-pause
+    ctx.registerSlashCommand('timer-pause', () => {
+        if (!StudyTimer.running || StudyTimer.paused) {
+            sendSystemMessage('⏸ 计时器未在运行中或已暂停。');
+            return;
+        }
+        pauseTimer();
+        sendSystemMessage('⏸ 计时器已暂停');
+    });
+
+    // /timer-resume
+    ctx.registerSlashCommand('timer-resume', () => {
+        if (!StudyTimer.running || !StudyTimer.paused) {
+            sendSystemMessage('▶ 计时器未暂停。');
+            return;
+        }
+        resumeTimer();
+        sendSystemMessage('▶ 计时器已恢复');
+    });
+
+    // /timer-status
+    ctx.registerSlashCommand('timer-status', () => {
+        if (!StudyTimer.running) {
+            sendSystemMessage('🍅 番茄计时器空闲中。');
+            return;
+        }
+        const status = StudyTimer.paused ? '⏸ 已暂停' : '▶ 运行中';
+        const type = StudyTimer.timerType === 'countdown' ? '倒计时' :
+                     StudyTimer.timerType === 'stopwatch' ? '正计时' : '休息';
+        const time = StudyTimer.timerType === 'stopwatch'
+            ? formatTime(StudyTimer.elapsedSeconds)
+            : formatTime(StudyTimer.remainingSeconds);
+        sendSystemMessage(
+            `${status} | ${type} | 科目: ${StudyTimer.currentSubject} | 时间: ${time} | 番茄: ${StudyTimer.pomodoroCount}🍅`
+        );
+    });
+
+    // /study-stats
+    ctx.registerSlashCommand('study-stats', () => {
+        const todayKey = getTodayKey();
+        const todayData = StudyTimer.dailyRecords[todayKey] || {};
+        const totalSeconds = getTodayTotalSeconds();
+        
+        let msg = `📊 今日学习统计 (${todayKey})\n`;
+        for (const [subject, secs] of Object.entries(todayData)) {
+            msg += `  ${subject}: ${formatTime(secs)}\n`;
+        }
+        msg += `总计: ${formatTime(totalSeconds)} (${formatHours(totalSeconds)}小时)\n`;
+        msg += `🍅 番茄数: ${StudyTimer.pomodoroCount}`;
+        sendSystemMessage(msg);
+    });
+
+    // /study-now
+    ctx.registerSlashCommand('study-now', () => {
+        const now = new Date();
+        const todayKey = getTodayKey();
+        const totalSeconds = getTodayTotalSeconds();
+        sendSystemMessage(
+            `🕐 当前时间: ${now.toLocaleTimeString('zh-CN')}\n` +
+            `📅 ${todayKey} | 今日学习: ${formatTime(totalSeconds)} (${formatHours(totalSeconds)}小时) | 🍅 ${StudyTimer.pomodoroCount}`
+        );
+    });
+
+    // /study-subjects
+    ctx.registerSlashCommand('study-subjects', () => {
+        const subs = StudyTimer.settings.subjects.join(', ');
+        sendSystemMessage(`📚 当前科目: ${subs}`);
+    });
+
+    // /study-add-subject 科目名
+    ctx.registerSlashCommand('study-add-subject', (args) => {
+        const subject = (typeof args === 'string' ? args : '').trim();
+        if (!subject) {
+            sendSystemMessage('用法: /study-add-subject 科目名');
+            return;
+        }
+        if (StudyTimer.settings.subjects.includes(subject)) {
+            sendSystemMessage(`📚 "${subject}" 已存在。`);
+            return;
+        }
+        StudyTimer.settings.subjects.push(subject);
+        saveSettings();
+        refreshSubjectChips();
+        sendSystemMessage(`✅ 已添加科目: ${subject}`);
+    });
+
+    // /study-remove-subject 科目名
+    ctx.registerSlashCommand('study-remove-subject', (args) => {
+        const subject = (typeof args === 'string' ? args : '').trim();
+        if (!subject) {
+            sendSystemMessage('用法: /study-remove-subject 科目名');
+            return;
+        }
+        const idx = StudyTimer.settings.subjects.indexOf(subject);
+        if (idx === -1) {
+            sendSystemMessage(`❌ 未找到科目: ${subject}`);
+            return;
+        }
+        StudyTimer.settings.subjects.splice(idx, 1);
+        saveSettings();
+        refreshSubjectChips();
+        sendSystemMessage(`🗑 已删除科目: ${subject}`);
+    });
+}
+
+// ============ 初始化 ============
+
+function init() {
+    if (StudyTimer.initialized) return;
+
+    loadSettings();
+    loadDailyRecords();
+
+    createStyles();
+    createUI();
+
+    // 恢复计时器状态
+    loadTimerState();
+
+    // 设置初始科目选择
+    setTimeout(() => {
+        refreshSubjectChips();
+        updateTimerDisplay();
+        updatePanelUI();
+    }, 100);
+
+    // 注册命令
+    try {
+        registerSlashCommands();
+    } catch (e) {
+        console.warn('[StudyTimer] 斜杠命令注册失败，稍后重试', e);
+        // ST 可能还没完全初始化，延迟重试
+        setTimeout(() => {
+            try { registerSlashCommands(); } catch {}
+        }, 2000);
+    }
+
+    // 页面关闭前保存
+    window.addEventListener('beforeunload', () => {
+        saveTimerState();
+        saveDailyRecords();
+        saveSettings();
+    });
+
+    // 定期自动保存（每30秒）
+    setInterval(() => {
+        if (StudyTimer.running) saveTimerState();
+    }, 30000);
+
+    StudyTimer.initialized = true;
+    console.log('🍅 番茄学习计时器已就绪 (Mobile-First)');
+}
+
+// ============ 导出 API（供其他扩展或工具调用）============
+if (typeof window !== 'undefined') {
+    window.StudyTimerAPI = {
+        startCountdown,
+        startStopwatch,
+        pauseTimer,
+        resumeTimer,
+        stopTimer,
+        getStatus: () => ({
+            running: StudyTimer.running,
+            paused: StudyTimer.paused,
+            timerType: StudyTimer.timerType,
+            remainingSeconds: StudyTimer.remainingSeconds,
+            elapsedSeconds: StudyTimer.elapsedSeconds,
+            totalDuration: StudyTimer.totalDuration,
+            currentSubject: StudyTimer.currentSubject,
+            pomodoroCount: StudyTimer.pomodoroCount
+        }),
+        getTodayStats: () => {
+            const key = getTodayKey();
+            return {
+                date: key,
+                records: StudyTimer.dailyRecords[key] || {},
+                totalSeconds: getTodayTotalSeconds(),
+                pomodoroCount: StudyTimer.pomodoroCount
+            };
+        },
+        getWeeklyStats,
+        getSubjects: () => [...StudyTimer.settings.subjects],
+        addSubject: (s) => {
+            if (!StudyTimer.settings.subjects.includes(s)) {
+                StudyTimer.settings.subjects.push(s);
+                saveSettings();
+                refreshSubjectChips();
             }
         }
-    });
+    };
 }
 
-// ==================== Tool Calling (Function Call) ====================
-
-/**
- * Registers a query_study_stats tool so AI can fetch real learning data on demand.
- * DeepSeek, OpenAI, Claude, etc. all support this via OpenAI-compatible protocol.
- */
-function registerStudyStatsTool() {
-    ToolManager.registerFunctionTool({
-        name: 'query_study_stats',
-        displayName: '查询学习统计',
-        description: [
-            '查询学习计时统计数据，包括今日各科目学习时长、目标完成率、本周趋势、历史对比等。',
-            '当你需要了解用户的学习进度、效率评估、或用户询问"学得怎么样"/"进度如何"时，请调用此工具获取真实数据，不要凭空编造数字。',
-        ].join(' '),
-        parameters: {
-            $schema: 'http://json-schema.org/draft-04/schema#',
-            type: 'object',
-            properties: {
-                subject: {
-                    type: 'string',
-                    description: '可选。指定要查询的科目名称（如"高数""英语""408"）。不传则返回全量数据。',
-                },
-                scope: {
-                    type: 'string',
-                    enum: ['today', 'week', 'full'],
-                    description: '可选。查询范围：today=仅今日, week=本周, full=今日+本周。默认 full。',
-                },
-            },
-        },
-        /**
-         * @param {{subject?: string, scope?: string}} args
-         */
-        action: async (args) => {
-            const stats = loadStats();
-            const todayKey = getTodayKey();
-            const todayRecords = stats.records[todayKey] || {};
-            const ext = /** @type {any} */(extension_settings)[MODULE_NAME];
-            const subjectGoals = /** @type {Record<string, number>} */(ext.subject_goals) || {};
-            const dailyGoal = /** @type {number} */(ext.daily_goal_minutes || 480);
-            const scope = args?.scope || 'full';
-
-            const now = getCurrentTimeString();
-            const dateStr = getCurrentDateString();
-            const period = getTimeBasedMessage();
-
-            // ---- Single subject query ----
-            if (args?.subject) {
-                const subj = args.subject;
-                const mins = /** @type {number} */(todayRecords[subj] || 0);
-                const goal = subjectGoals[subj];
-                const pct = goal ? Math.round(mins / goal * 100) : null;
-                let status;
-                if (!goal) {
-                    status = '无目标';
-                } else if (pct === null || pct <= 0) {
-                    status = '❌未开始';
-                } else if (pct >= 100) {
-                    status = '✅已完成';
-                } else if (pct >= 50) {
-                    status = '📚进行中';
-                } else {
-                    status = '📝刚开始';
-                }
-
-                return JSON.stringify({
-                    查询科目: subj,
-                    已学分钟: mins,
-                    目标分钟: goal || '未设定',
-                    完成率: pct !== null ? `${pct}%` : '无目标',
-                    状态: status,
-                    当前时间: `${dateStr} ${now} (${period})`,
-                }, null, 2);
-            }
-
-            // ---- Full data ----
-            const todayTotal = getTodayTotalMinutes();
-            const goalPct = dailyGoal > 0 ? Math.round(todayTotal / dailyGoal * 100) : 0;
-
-            // Per-subject breakdown
-            /** @type {Record<string, {分钟: number, 目标: number|string, 完成率: string, 状态: string}>} */
-            const subjectBreakdown = {};
-            for (const [subj, mins] of Object.entries(todayRecords)) {
-                const sg = subjectGoals[subj];
-                const sp = sg ? Math.round(/** @type {number} */(mins) / sg * 100) : null;
-                let subjStatus;
-                if (!sg) {
-                    subjStatus = '无目标';
-                } else if (sp === null || sp <= 0) {
-                    subjStatus = '❌';
-                } else if (sp >= 100) {
-                    subjStatus = '✅';
-                } else if (sp >= 50) {
-                    subjStatus = '📚';
-                } else {
-                    subjStatus = '📝';
-                }
-                subjectBreakdown[subj] = {
-                    分钟: /** @type {number} */(mins),
-                    目标: sg || '未设定',
-                    完成率: sp !== null ? `${sp}%` : '无目标',
-                    状态: subjStatus,
-                };
-            }
-            // Subjects with goals but no records
-            for (const [subj, goal] of Object.entries(subjectGoals)) {
-                if (!(subj in subjectBreakdown)) {
-                    subjectBreakdown[subj] = { 分钟: 0, 目标: goal, 完成率: '0%', 状态: '❌' };
-                }
-            }
-
-            /** @type {{[key: string]: any}} */
-            const result = {
-                日期: dateStr,
-                当前时间: `${now} (${period})`,
-                今日汇总: {
-                    已学总分钟: todayTotal,
-                    每日目标: dailyGoal,
-                    完成率: `${goalPct}%`,
-                    还需分钟: Math.max(0, dailyGoal - todayTotal),
-                    达标: todayTotal >= dailyGoal ? '是 ✅' : '否',
-                },
-                科目明细: subjectBreakdown,
-            };
-
-            // ---- Weekly data ----
-            if (scope === 'week' || scope === 'full') {
-                const weekly = getWeeklyStats();
-                const weekSummary = [];
-                let weekTotal = 0;
-                let yesterdayTotal = 0;
-                for (const [key, day] of Object.entries(weekly)) {
-                    weekTotal += day.total;
-                    weekSummary.push({
-                        日期: day.label,
-                        分钟: day.total,
-                        今日: day.isToday,
-                    });
-                    if (!day.isToday) yesterdayTotal = day.total; // last non-today
-                }
-
-                // Consecutive days streak
-                let streak = 0;
-                const sortedKeys = Object.keys(weekly).sort().reverse();
-                for (const key of sortedKeys) {
-                    if (weekly[key].total > 0) streak++;
-                    else break;
-                }
-
-                // All-time total
-                let allTimeTotal = 0;
-                for (const dayRecords of Object.values(stats.records)) {
-                    allTimeTotal += Object.values(dayRecords).reduce((a, b) => a + b, 0);
-                }
-
-                result.本周汇总 = {
-                    总计分钟: weekTotal,
-                    日均分钟: Math.round(weekTotal / 7),
-                    连续学习天数: streak,
-                    较昨日: yesterdayTotal > 0
-                        ? (todayTotal > yesterdayTotal ? `+${todayTotal - yesterdayTotal}分钟 ↑`
-                            : todayTotal < yesterdayTotal ? `${todayTotal - yesterdayTotal}分钟 ↓` : '持平')
-                        : '昨日无数据',
-                };
-                result.每日明细 = weekSummary.reverse();
-                result.历史总计 = `${allTimeTotal}分钟 (约${Math.round(allTimeTotal/60)}小时)`;
-            }
-
-            return JSON.stringify(result, null, 2);
-        },
-        stealth: true,
-    });
-
-    console.log('[StudyTimer] Function tool "query_study_stats" registered');
-}
-
-// ==================== Init ====================
-
-export function initTimer() {
-    log('★★★ initTimer 开始 ★★★');
-    try {
-        loadSettings();
-        log('loadSettings 完成');
-        registerSlashCommands();
-        log('registerSlashCommands 完成');
-        createTimerUI(); // Show panel immediately
-        log('createTimerUI 完成, panel存在=', $('#study-timer-panel').length > 0, 'toggle存在=', $('#study-timer-toggle').length > 0);
-        initTimerCommands();
-        log('initTimerCommands 完成');
-        registerStudyStatsTool();
-        log('registerStudyStatsTool 完成');
-        const time = getCurrentTimeString();
-        const period = getTimeBasedMessage();
-        console.log(`[StudyTimer] ${period}好！现在是${time}。学习计时器已加载。使用 /study 科目=数学 分钟=30 开始。`);
-        log('★★★ initTimer 完成 ★★★');
-    } catch (e) {
-        logErr('initTimer 异常!', e);
-        throw e;
-    }
+// ============ 启动 ============
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+} else {
+    init();
 }
