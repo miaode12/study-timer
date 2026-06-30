@@ -1,11 +1,11 @@
 {
     "display_name": "🍅 番茄学习计时器",
-    "version": "1.0.0",
+    "version": "1.0.2",
     "description": "手机专用番茄钟学习计时器，支持倒计时、正计时、每日统计、AI角色互动",
     "author": "study-timer",
-    "project_url": "https://github.com/user/study-timer-extension",
+    "project_url": "https://github.com/miaode12/study-timer",
     "minimum_version": "1.12.0",
-    "loading_order": 100,
+    "loading_order": 200,
     "requires": [],
     "mobile_friendly": true
 }

@@ -545,7 +545,7 @@ function createStyles() {
 #study-timer-overlay {
     position: fixed;
     top: 0; left: 0; right: 0; bottom: 0;
-    z-index: 9998;
+    z-index: 2147483644;
     background: rgba(0,0,0,0.4);
     display: none;
     pointer-events: none;
@@ -559,7 +559,7 @@ function createStyles() {
     position: fixed;
     bottom: 20px;
     right: 16px;
-    z-index: 9999;
+    z-index: 2147483646;
     width: 52px;
     height: 52px;
     border-radius: 50%;
@@ -619,7 +619,7 @@ function createStyles() {
     bottom: 0;
     left: 0;
     right: 0;
-    z-index: 10000;
+    z-index: 2147483645;
     background: #1e1e2e;
     border-radius: 20px 20px 0 0;
     box-shadow: 0 -4px 30px rgba(0,0,0,0.5);
@@ -801,7 +801,7 @@ function createStyles() {
     bottom: 0;
     left: 0;
     right: 0;
-    z-index: 10001;
+    z-index: 2147483645;
     background: #1e1e2e;
     border-radius: 20px 20px 0 0;
     box-shadow: 0 -4px 30px rgba(0,0,0,0.5);
@@ -877,7 +877,7 @@ function createStyles() {
     bottom: 0;
     left: 0;
     right: 0;
-    z-index: 10001;
+    z-index: 2147483645;
     background: #1e1e2e;
     border-radius: 20px 20px 0 0;
     box-shadow: 0 -4px 30px rgba(0,0,0,0.5);
@@ -991,7 +991,7 @@ function createStyles() {
     top: 60px;
     left: 50%;
     transform: translateX(-50%);
-    z-index: 10010;
+    z-index: 2147483647;
     background: #313244;
     color: #cdd6f4;
     padding: 12px 24px;
@@ -1044,20 +1044,22 @@ function showToast(msg, duration = 2000) {
 }
 
 function createUI() {
-    // 浮动按钮
+    console.log('[StudyTimer] 🏗 开始创建 UI...');
+
+    // 浮动按钮 — 挂在 html 上，避免 ST mobile 的 body transform 导致 fixed 失效
     const floatingBtn = document.createElement('button');
     floatingBtn.id = 'study-timer-floating-btn';
     floatingBtn.innerHTML = '<span class="btn-icon">🍅</span><span class="mini-time"></span>';
     floatingBtn.addEventListener('click', togglePanel);
-    document.body.appendChild(floatingBtn);
+    document.documentElement.appendChild(floatingBtn);
 
-    // 遮罩层
+    // 遮罩层 — 同样挂在 html 上
     const overlay = document.createElement('div');
     overlay.id = 'study-timer-overlay';
     overlay.addEventListener('click', closeAllPanels);
-    document.body.appendChild(overlay);
+    document.documentElement.appendChild(overlay);
 
-    // 主面板
+    // 主面板 — 挂在 body 上（抽屉面板不需要 fixed 到视口，跟着 body 滚动没问题）
     const panel = document.createElement('div');
     panel.id = 'study-timer-panel';
     panel.innerHTML = buildPanelHTML();
@@ -1073,6 +1075,34 @@ function createUI() {
     const settingsPanel = document.createElement('div');
     settingsPanel.id = 'study-timer-settings-panel';
     document.body.appendChild(settingsPanel);
+
+    console.log('[StudyTimer] ✅ UI 创建完成');
+
+    // 验证浮动按钮是否真的渲染了，并诊断 transform 污染
+    setTimeout(() => {
+        const btn = document.getElementById('study-timer-floating-btn');
+        if (btn) {
+            const btnRect = btn.getBoundingClientRect();
+            const htmlStyle = getComputedStyle(document.documentElement);
+            const bodyStyle = getComputedStyle(document.body);
+            const htmlTransform = htmlStyle.transform;
+            const bodyTransform = bodyStyle.transform;
+            
+            console.log('[StudyTimer] 🔍 浮动按钮位置:', JSON.stringify(btnRect));
+            console.log('[StudyTimer] 🔍 <html> transform:', htmlTransform, '| <body> transform:', bodyTransform);
+            
+            const isVisible = btnRect.width > 0 && btnRect.height > 0 && btnRect.bottom > 0;
+            if (!isVisible) {
+                console.warn('[StudyTimer] ⚠ 浮动按钮可能不可见！尝试备用挂载方式...');
+                document.body.appendChild(btn);
+            }
+            if (htmlTransform !== 'none' || bodyTransform !== 'none') {
+                console.warn('[StudyTimer] ⚠ 检测到父级 transform，position:fixed 可能失效！html=' + htmlTransform + ' body=' + bodyTransform);
+            }
+        } else {
+            console.error('[StudyTimer] ❌ 浮动按钮元素丢失！');
+        }
+    }, 500);
 
     return { floatingBtn, panel, statsPanel, settingsPanel, overlay };
 }
@@ -1667,50 +1697,86 @@ function registerSlashCommands() {
 
 // ============ 初始化 ============
 
+/** 检查 ST 是否已就绪 */
+function isSTReady() {
+    if (!document.body) return false;
+    if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
+        const ctx = SillyTavern.getContext();
+        if (ctx && ctx.characters !== undefined) return true;
+    }
+    return document.body.children.length > 0;
+}
+
 function init() {
-    if (StudyTimer.initialized) return;
-
-    loadSettings();
-    loadDailyRecords();
-
-    createStyles();
-    createUI();
-
-    // 恢复计时器状态
-    loadTimerState();
-
-    // 设置初始科目选择
-    setTimeout(() => {
-        refreshSubjectChips();
-        updateTimerDisplay();
-        updatePanelUI();
-    }, 100);
-
-    // 注册命令
-    try {
-        registerSlashCommands();
-    } catch (e) {
-        console.warn('[StudyTimer] 斜杠命令注册失败，稍后重试', e);
-        // ST 可能还没完全初始化，延迟重试
-        setTimeout(() => {
-            try { registerSlashCommands(); } catch {}
-        }, 2000);
+    if (StudyTimer.initialized) {
+        console.log('[StudyTimer] ⚠ 已初始化，跳过');
+        return;
     }
 
-    // 页面关闭前保存
-    window.addEventListener('beforeunload', () => {
-        saveTimerState();
-        saveDailyRecords();
-        saveSettings();
+    console.log('[StudyTimer] 🚀 开始初始化...', {
+        hasBody: !!document.body,
+        hasST: typeof SillyTavern !== 'undefined',
+        readyState: document.readyState,
+        ua: navigator.userAgent.substring(0, 50)
     });
 
-    // 定期自动保存（每30秒）
-    setInterval(() => {
-        if (StudyTimer.running) saveTimerState();
-    }, 30000);
+    if (!isSTReady()) {
+        console.warn('[StudyTimer] ⏳ ST 尚未就绪，延迟重试...');
+        setTimeout(init, 500);
+        return;
+    }
 
-    StudyTimer.initialized = true;
-    console.log('🍅 番茄学习计时器已就绪 (Mobile-First)');
+    try {
+        loadSettings();
+        loadDailyRecords();
+        console.log('[StudyTimer] 📦 数据加载完成', StudyTimer.settings.subjects);
+
+        createStyles();
+        createUI();
+
+        // 恢复计时器状态
+        loadTimerState();
+
+        // 设置初始科目选择
+        setTimeout(() => {
+            refreshSubjectChips();
+            updateTimerDisplay();
+            updatePanelUI();
+            console.log('[StudyTimer] 🎨 UI 刷新完成');
+        }, 200);
+
+        // 注册命令
+        try {
+            registerSlashCommands();
+            console.log('[StudyTimer] 💬 斜杠命令注册完成');
+        } catch (e) {
+            console.warn('[StudyTimer] 斜杠命令注册失败，2秒后重试', e);
+            setTimeout(() => {
+                try { registerSlashCommands(); console.log('[StudyTimer] 💬 斜杠命令重试成功'); } catch (e2) {
+                    console.error('[StudyTimer] ❌ 斜杠命令注册最终失败', e2);
+                }
+            }, 2000);
+        }
+
+        // 页面关闭前保存
+        window.addEventListener('beforeunload', () => {
+            saveTimerState();
+            saveDailyRecords();
+            saveSettings();
+        });
+
+        // 定期自动保存（每30秒）
+        setInterval(() => {
+            if (StudyTimer.running) saveTimerState();
+        }, 30000);
+
+        StudyTimer.initialized = true;
+        console.log('🍅 番茄学习计时器已就绪 (Mobile-First v1.0.1)');
+
+    } catch (err) {
+        console.error('[StudyTimer] ❌ 初始化失败:', err);
+        setTimeout(init, 5000);
+    }
 }
 
 // ============ 导出 API（供其他扩展或工具调用）============
@@ -1752,9 +1818,24 @@ if (typeof window !== 'undefined') {
     };
 }
 
-// ============ 启动 ============
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-} else {
-    init();
-}
+// ============ 启动（带多重保障） ============
+(function boot() {
+    console.log('[StudyTimer] 📋 脚本加载... readyState=' + document.readyState);
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('[StudyTimer] 📋 DOMContentLoaded 触发');
+            setTimeout(init, 300);
+        });
+    } else {
+        setTimeout(init, 300);
+    }
+
+    // 兜底：3秒后无论如何再试
+    setTimeout(() => {
+        if (!StudyTimer.initialized) {
+            console.warn('[StudyTimer] 🔄 兜底重试...');
+            init();
+        }
+    }, 3000);
+})();
